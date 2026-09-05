@@ -1,66 +1,67 @@
 # Chicken Farm
 
-Eine einheitliche Roblox-Benutzeroberfläche zur Automatisierung wiederkehrender Abläufe in Chicken Farm.
+A unified Roblox interface for automating repetitive tasks in Chicken Farm.
 
-## Funktionen
+## Features
 
-- Hühner automatisch in Mengen von 1, 5, 25 oder 100 kaufen
-- Eier abhängig vom aktuellen Multiplikator automatisch verkaufen
-- Prozess- und Kaufstufen automatisch verbessern
-- Gruppenbelohnung automatisch abholen
-- Cash automatisch einsammeln
-- Optionaler Anti-AFK-Modus
-- Statistikansicht mit aktuellen Spielwerten und Eier/s
-- Speicherbare Einstellungen, Fensterposition und frei wählbarer UI-Hotkey
-- Responsive, scrollbare und für Maus sowie Touch geeignete Oberfläche
+- Automatically buy 1, 5, 25, or 100 chickens
+- Automatically sell eggs based on the current multiplier
+- Automatically upgrade process and purchase tiers
+- Automatically claim the group reward
+- Automatically collect cash
+- Optional anti-AFK mode
+- Stats page with current game values and eggs per second
+- Saved settings, window position, and customizable UI hotkey
+- Responsive, scrollable interface with mouse and touch support
 
-## Bedienung
+## Usage
 
-1. Script starten.
-2. Im Tab **Farm** die gewünschten Automatisierungen aktivieren.
-3. Die Kaufmenge über eine der vier Mengenschaltflächen auswählen.
-4. Den Verkaufsmultiplikator mit dem Slider zwischen **0,50x und 1,50x** einstellen.
-5. Im Tab **Statistiken** die aktuellen Spielwerte ansehen.
+1. Run the script.
+2. Enable the desired automations in the **Farm** tab.
+3. Select the purchase amount using one of the four amount buttons.
+4. Set the sell multiplier between **0.50x and 1.50x** with the slider.
+5. View the current game values in the **Stats** tab.
 
-Der Standard-Hotkey zum Ein- und Ausblenden der UI ist **Rechte Strg**. Er kann unter **Oberfläche** geändert werden. Während der Hotkey-Auswahl bricht ESC den Vorgang ab.
+The default hotkey for showing or hiding the interface is **Right Ctrl**. It can be changed under **Interface**. Press ESC to cancel while selecting a new hotkey.
 
-## UI-Schaltflächen
+## UI Buttons
 
-- Minus: Fenster minimieren
-- Plus: Fenster wieder öffnen
-- X: Script und alle Verbindungen sauber beenden
+- Minus: Minimize the window
+- Plus: Restore the window
+- X: Stop the script and cleanly disconnect all connections
 
-## Einstellungen
+## Settings
 
-Wenn die verwendete Umgebung readfile, writefile und isfile unterstützt, werden die Einstellungen in ChickenFarm_PlaceId.json gespeichert. Ohne Dateiunterstützung funktioniert das Script weiterhin, die Einstellungen gelten dann jedoch nur für die aktuelle Sitzung.
+If the runtime supports readfile, writefile, and isfile, settings are stored in ChickenFarm_PlaceId.json. Without file support, the script still works, but settings only remain active for the current session.
 
-## Leistungsoptimierungen
+## Performance Improvements
 
-- Remote-Aufrufe laufen getrennt voneinander und blockieren nicht mehr alle Automatisierungen.
-- Gleichartige Remote-Aufrufe können nicht gleichzeitig doppelt ausgeführt werden.
-- Eier werden nur verkauft, wenn tatsächlich Eier vorhanden sind.
-- Die aufwendige Suche nach dem Rebirth-Fortschritt läuft nur im Statistik-Tab und höchstens alle zehn Sekunden.
-- Fehlerwarnungen werden gedrosselt, damit die Konsole nicht überflutet wird.
+- Remote calls run independently and no longer block every automation.
+- Duplicate remote calls of the same type cannot run simultaneously.
+- Eggs are only sold when eggs are available.
+- The expensive Rebirth progress search only runs in the Stats tab and at most once every ten seconds.
+- Error warnings are throttled to prevent console spam.
+- Visual stats updates pause while the interface is hidden or minimized.
 
-## Fehler und Spielupdates
+## Errors and Game Updates
 
-Die Statusleiste am unteren Rand zeigt erfolgreiche Aktionen, Wartezustände und Fehler. Wenn benötigte Spielobjekte beim Start fehlen, beendet sich das Script mit einer verständlichen Warnung.
+The status bar at the bottom displays successful actions, waiting states, and errors. If a required game object is missing at startup, the script stops with a clear warning.
 
-Roblox-Spiele können Namen, UI-Pfade und Remote-Aufrufe jederzeit ändern. Nach einem Spielupdate müssen diese Pfade möglicherweise in main.lua angepasst werden.
+Roblox games can change object names, UI paths, and remote calls at any time. These paths in main.lua may need to be updated after a game update.
 
 ## Version
 
-Aktuell: **2.0.0**
+Current version: **2.0.0**
 
-### Änderungen in 2.0.0
+### Changes in 2.0.0
 
-- Oberfläche vollständig überarbeitet und vereinheitlicht
-- Responsive Skalierung, Scrolling und Touch-Unterstützung
-- Multiplikator-Slider und deaktivierte abhängige Einstellung
-- Sichtbare Status- und Fehlermeldungen
-- Übersichtliche Statistikansicht
-- Zuverlässigerer Group-Reward-Timer
-- Optimierter Rebirth-Scan
-- Blockierungsfreie Remote-Worker
-- Validierung und Versionierung der Einstellungen
-- Minimieren und sauberes Schließen ergänzt
+- Completely redesigned and standardized interface
+- Responsive scaling, scrolling, and touch support
+- Multiplier slider with a disabled state when Auto Sell is off
+- Visible status and error messages
+- Clear stats page
+- More reliable group reward timer
+- Optimized Rebirth scan
+- Non-blocking remote workers
+- Settings validation and versioning
+- Minimize and clean shutdown controls
