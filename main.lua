@@ -344,18 +344,18 @@ end
 local function Worker(interval,enabled,action)
 	task.spawn(function() while Runtime.Alive do if enabled() then action() end task.wait(interval) end end)
 end
-Worker(.5,function() return Settings.chickenEnabled end,function()
+Worker(.2,function() return Settings.chickenEnabled end,function()
 	InvokeAsync("Chickens purchased",{"Buy Chickens",Settings.selectedChickenAmount})
 end)
-Worker(.5,function() return Settings.autoSellEggs end,function()
+Worker(.2,function() return Settings.autoSellEggs end,function()
 	local eggs=EggsTextObject and ParseNumber(EggsTextObject.Text)
-	if eggs and eggs>0 and (tonumber(EggMultiplier.Value) or 0)>=Settings.sellAtMultiplier and os.clock()-lastDepositTime>=1 then
+	if eggs and eggs>0 and (tonumber(EggMultiplier.Value) or 0)>=Settings.sellAtMultiplier and os.clock()-lastDepositTime>=.2 then
 		InvokeAsync("Eggs sold",{"Deposit Eggs"},function(ok)
 			if ok then lastDepositTime=os.clock() lastEgg,lastEggTime,eggRate=nil,nil,nil end
 		end)
 	end
 end)
-Worker(1,function() return Settings.autoProcessUpgrade end,function()
+Worker(.2,function() return Settings.autoProcessUpgrade end,function()
 	InvokeAsync("Process upgraded",{"Upgrade Process Level"})
 end)
 Worker(1,function() return Settings.autoTierUpgrade end,function()
