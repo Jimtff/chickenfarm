@@ -29,8 +29,6 @@ Der Standard-Hotkey zum Ein- und Ausblenden der UI ist **Rechte Strg**. Er kann 
 - Minus: Fenster minimieren
 - Plus: Fenster wieder öffnen
 - X: Script und alle Verbindungen sauber beenden
-- **Position**: Fensterposition zurücksetzen
-- **Alles**: Einstellungen auf Standardwerte zurücksetzen; anschließend das Script neu starten
 
 ## Einstellungen
 
@@ -65,4 +63,4 @@ Aktuell: **2.0.0**
 - Optimierter Rebirth-Scan
 - Blockierungsfreie Remote-Worker
 - Validierung und Versionierung der Einstellungen
-- Minimieren, Schließen und Zurücksetzen ergänzt
+- Minimieren und sauberes Schließen ergänzt
