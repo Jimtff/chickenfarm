@@ -1,2781 +1,453 @@
---------------------------------------------------
--- CHICKEN FARM - FULL VERSION
---------------------------------------------------
-
---------------------------------------------------
--- SERVICES
---------------------------------------------------
-
+-- Chicken Farm 2.0 - improved single-file version
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local VirtualUser = game:GetService("VirtualUser")
 local HttpService = game:GetService("HttpService")
+local Workspace = game:GetService("Workspace")
 
 local Player = Players.LocalPlayer
-local PlayerGui = Player:WaitForChild("PlayerGui")
+local PlayerGui = Player:WaitForChild("PlayerGui", 15)
+if not PlayerGui then warn("[Chicken Farm] PlayerGui fehlt.") return end
 
---------------------------------------------------
--- ENVIRONMENT
---------------------------------------------------
+local Env = _G
+pcall(function() if getgenv then Env = getgenv() end end)
+if Env.__ChickenFarmRuntime and Env.__ChickenFarmRuntime.Stop then pcall(Env.__ChickenFarmRuntime.Stop) end
 
-local Environment = _G
-
-pcall(function()
-	if getgenv then
-		Environment = getgenv()
-	end
-end)
-
---------------------------------------------------
--- SETTINGS
---------------------------------------------------
-
-local SETTINGS_FILE =
-	"ChickenFarm_" .. tostring(game.PlaceId) .. ".json"
-
-local DEFAULT_SETTINGS = {
-
-	chickenEnabled = false,
-	selectedChickenAmount = 25,
-
-	autoSellEggs = false,
-	sellAtMultiplier = 1.25,
-
-	autoProcessUpgrade = false,
-	autoTierUpgrade = false,
-	autoGroupReward = false,
-	autoCollectCash = false,
-
-	antiAFK = false,
-
+local VERSION = "2.0.0"
+local SETTINGS_FILE = "ChickenFarm_" .. tostring(game.PlaceId) .. ".json"
+local GROUP_INTERVAL, ERROR_COOLDOWN = 600, 10
+local C = {
+	background = Color3.fromRGB(20, 21, 24), surface = Color3.fromRGB(32, 34, 39),
+	control = Color3.fromRGB(43, 46, 52), accent = Color3.fromRGB(62, 176, 92),
+	danger = Color3.fromRGB(190, 65, 65), warning = Color3.fromRGB(218, 158, 54),
+	text = Color3.fromRGB(242, 242, 244), muted = Color3.fromRGB(170, 174, 184),
+	outline = Color3.fromRGB(65, 69, 78),
+}
+local DEFAULTS = {
+	version = 2, chickenEnabled = false, selectedChickenAmount = 25,
+	autoSellEggs = false, sellAtMultiplier = 1.25,
+	autoProcessUpgrade = false, autoTierUpgrade = false,
+	autoGroupReward = false, autoCollectCash = false, antiAFK = false,
 	uiHotkey = "RightControl",
-
-	uiPosition = {
-		xScale = 0.5,
-		xOffset = -205,
-		yScale = 0.5,
-		yOffset = -300
-	},
-
-	lastGroupRewardAttempt = 0
+	uiPosition = { xScale = 0.5, xOffset = -215, yScale = 0.5, yOffset = -285 },
+	lastGroupRewardAttempt = 0,
 }
 
-local Settings = {}
-
-local function CopyDefaults()
-
-	for key, value in pairs(DEFAULT_SETTINGS) do
-
-		if type(value) == "table" then
-
-			Settings[key] = {}
-
-			for childKey, childValue in pairs(value) do
-				Settings[key][childKey] = childValue
-			end
-
-		else
-
-			Settings[key] = value
-
-		end
-
-	end
-
+local function Clone(t)
+	local result = {}
+	for k, v in pairs(t) do result[k] = type(v) == "table" and Clone(v) or v end
+	return result
 end
+local Settings = Clone(DEFAULTS)
+local FILE_SUPPORT = type(readfile) == "function" and type(writefile) == "function" and type(isfile) == "function"
+local lastJSON
 
-CopyDefaults()
-
---------------------------------------------------
--- FILE SUPPORT
---------------------------------------------------
-
-local FILE_SUPPORT =
-	type(readfile) == "function"
-	and type(writefile) == "function"
-	and type(isfile) == "function"
-
-local lastSavedJSON = nil
-
---------------------------------------------------
--- LOAD SETTINGS
---------------------------------------------------
-
+local function ValidateSettings()
+	local amounts = { [1] = true, [5] = true, [25] = true, [100] = true }
+	Settings.selectedChickenAmount = tonumber(Settings.selectedChickenAmount) or 25
+	if not amounts[Settings.selectedChickenAmount] then Settings.selectedChickenAmount = 25 end
+	Settings.sellAtMultiplier = math.clamp(tonumber(Settings.sellAtMultiplier) or 1.25, .5, 1.5)
+	Settings.sellAtMultiplier = math.floor(Settings.sellAtMultiplier * 20 + .5) / 20
+	Settings.lastGroupRewardAttempt = math.max(0, tonumber(Settings.lastGroupRewardAttempt) or 0)
+	for _, key in ipairs({"chickenEnabled","autoSellEggs","autoProcessUpgrade","autoTierUpgrade","autoGroupReward","autoCollectCash","antiAFK"}) do
+		Settings[key] = Settings[key] == true
+	end
+	if typeof(Enum.KeyCode[tostring(Settings.uiHotkey)]) ~= "EnumItem" then Settings.uiHotkey = "RightControl" end
+	if type(Settings.uiPosition) ~= "table" then Settings.uiPosition = Clone(DEFAULTS.uiPosition) end
+	for k, fallback in pairs(DEFAULTS.uiPosition) do Settings.uiPosition[k] = tonumber(Settings.uiPosition[k]) or fallback end
+	Settings.version = 2
+end
 local function LoadSettings()
-
-	if not FILE_SUPPORT then
-		return
-	end
-
-	local success, data =
-		pcall(function()
-
-			if not isfile(SETTINGS_FILE) then
-				return nil
-			end
-
-			return HttpService:JSONDecode(
-				readfile(SETTINGS_FILE)
-			)
-
-		end)
-
-	if not success
-		or type(data) ~= "table"
-	then
-		return
-	end
-
-	for key, defaultValue in pairs(DEFAULT_SETTINGS) do
-
+	if not FILE_SUPPORT then return end
+	local ok, data = pcall(function()
+		if not isfile(SETTINGS_FILE) then return nil end
+		return HttpService:JSONDecode(readfile(SETTINGS_FILE))
+	end)
+	if not ok or type(data) ~= "table" then return end
+	for key, default in pairs(DEFAULTS) do
 		if data[key] ~= nil then
-
-			if type(defaultValue) == "table"
-				and type(data[key]) == "table"
-			then
-
-				for childKey, childDefault in pairs(defaultValue) do
-
-					if data[key][childKey] ~= nil then
-
-						Settings[key][childKey] =
-							data[key][childKey]
-
-					else
-
-						Settings[key][childKey] =
-							childDefault
-
-					end
-
-				end
-
-			else
-
-				Settings[key] = data[key]
-
-			end
-
+			if type(default) == "table" and type(data[key]) == "table" then
+				for child in pairs(default) do if data[key][child] ~= nil then Settings[key][child] = data[key][child] end end
+			else Settings[key] = data[key] end
 		end
-
 	end
-
+	ValidateSettings()
 end
-
+local function SaveSettings(force)
+	if not FILE_SUPPORT then return end
+	local ok, encoded = pcall(HttpService.JSONEncode, HttpService, Settings)
+	if not ok or (not force and encoded == lastJSON) then return end
+	if pcall(writefile, SETTINGS_FILE, encoded) then lastJSON = encoded end
+end
 LoadSettings()
 
---------------------------------------------------
--- SAVE SETTINGS
---------------------------------------------------
-
-local function SaveSettings(force)
-
-	if not FILE_SUPPORT then
-		return
+local Runtime = { Alive = true, Connections = {}, Busy = {}, LastErrors = {}, Controls = {} }
+Env.__ChickenFarmRuntime = Runtime
+local function Track(connection) table.insert(Runtime.Connections, connection) return connection end
+local function WaitPath(root, timeout, ...)
+	local current = root
+	for _, name in ipairs({...}) do
+		current = current and current:WaitForChild(name, timeout)
+		if not current then return nil, name end
 	end
-
-	local success, encoded =
-		pcall(function()
-
-			return HttpService:JSONEncode(
-				Settings
-			)
-
-		end)
-
-	if not success then
-		return
-	end
-
-	if not force
-		and encoded == lastSavedJSON
-	then
-		return
-	end
-
-	local saved =
-		pcall(function()
-
-			writefile(
-				SETTINGS_FILE,
-				encoded
-			)
-
-		end)
-
-	if saved then
-		lastSavedJSON = encoded
-	end
-
+	return current
 end
 
---------------------------------------------------
--- CHICKEN OPTIONS
---------------------------------------------------
-
-local chickenOptions = {
-	1,
-	5,
-	25,
-	100
-}
-
-local validChickenAmounts = {
-	[1] = true,
-	[5] = true,
-	[25] = true,
-	[100] = true
-}
-
-local selectedChickenAmount =
-	tonumber(
-		Settings.selectedChickenAmount
-	) or 25
-
-if not validChickenAmounts[selectedChickenAmount] then
-	selectedChickenAmount = 25
+local Event, missing1 = WaitPath(ReplicatedStorage, 10, "Paper", "Remotes", "__remotefunction")
+local EggMultiplier, missing2 = WaitPath(ReplicatedStorage, 10, "Values", "EggMultiplier")
+local GameMainGui, missing3 = WaitPath(PlayerGui, 10, "Main")
+if not Event or not EggMultiplier or not GameMainGui then
+	warn("[Chicken Farm] Benötigtes Spielelement fehlt: " .. tostring(missing1 or missing2 or missing3))
+	return
 end
+local EggsTextObject = WaitPath(GameMainGui, 5, "Eggs", "Amount", "Amt")
+local CashTextObject = WaitPath(GameMainGui, 5, "Currencies", "Cash", "List", "Amount")
+local GemsResetTextObject = WaitPath(GameMainGui, 5, "Currencies", "Gems", "List", "Collect", "Collected")
 
-local sellAtMultiplier =
-	math.clamp(
-		tonumber(
-			Settings.sellAtMultiplier
-		) or 1.25,
-		0.5,
-		1.5
-	)
-
---------------------------------------------------
--- STATES
---------------------------------------------------
-
-local chickenEnabled =
-	Settings.chickenEnabled == true
-
-local autoSellEggs =
-	Settings.autoSellEggs == true
-
-local autoProcessUpgrade =
-	Settings.autoProcessUpgrade == true
-
-local autoTierUpgrade =
-	Settings.autoTierUpgrade == true
-
-local autoGroupReward =
-	Settings.autoGroupReward == true
-
-local autoCollectCash =
-	Settings.autoCollectCash == true
-
-local antiAFK =
-	Settings.antiAFK == true
-
---------------------------------------------------
--- HOTKEY
---------------------------------------------------
-
-local uiHotkey =
-	Enum.KeyCode.RightControl
-
-pcall(function()
-
-	local saved =
-		Enum.KeyCode[
-			tostring(
-				Settings.uiHotkey
-			)
-		]
-
-	if saved then
-		uiHotkey = saved
-	end
-
-end)
-
-local waitingForHotkey = false
-
---------------------------------------------------
--- STOP OLD SCRIPT
---------------------------------------------------
-
-if Environment.__ChickenFarmRuntime then
-
-	local old =
-		Environment.__ChickenFarmRuntime
-
-	if old.Stop then
-		pcall(old.Stop)
-	end
-
+local SUFFIXES = {[""]=1,k=1e3,m=1e6,b=1e9,t=1e12,qd=1e15,qn=1e18,sx=1e21,sp=1e24,oc=1e27,no=1e30,dc=1e33}
+local FORMATS = {{1e33,"Dc"},{1e30,"No"},{1e27,"Oc"},{1e24,"Sp"},{1e21,"Sx"},{1e18,"Qn"},{1e15,"Qd"},{1e12,"T"},{1e9,"B"},{1e6,"M"},{1e3,"K"}}
+local function ParseNumber(text)
+	if text == nil then return nil end
+	text = tostring(text):gsub("<.->",""):gsub("%$",""):gsub(",",""):gsub("%s+",""):gsub("%+","")
+	local numberPart, suffix = text:match("^([%d%.]+)([%a]*)")
+	local number, multiplier = tonumber(numberPart), SUFFIXES[(suffix or ""):lower()]
+	return number and multiplier and number * multiplier or nil
 end
-
---------------------------------------------------
--- RUNTIME
---------------------------------------------------
-
-local Runtime = {
-	Alive = true,
-	Connections = {},
-	RemoteBusy = {},
-	LastErrors = {}
-}
-
-Environment.__ChickenFarmRuntime =
-	Runtime
-
---------------------------------------------------
--- TRACK CONNECTION
---------------------------------------------------
-
-local function TrackConnection(connection)
-
-	table.insert(
-		Runtime.Connections,
-		connection
-	)
-
-	return connection
-
+local function FormatNumber(value)
+	value = tonumber(value)
+	if not value then return "N/V" end
+	for _, item in ipairs(FORMATS) do if math.abs(value) >= item[1] then return string.format("%.2f%s", value / item[1], item[2]) end end
+	return math.abs(value) >= 100 and string.format("%.0f", value) or string.format("%.2f", value)
 end
-
---------------------------------------------------
--- STOP
---------------------------------------------------
-
-function Runtime.Stop()
-
-	Runtime.Alive = false
-
-	for _, connection in ipairs(
-		Runtime.Connections
-	) do
-
-		pcall(function()
-			connection:Disconnect()
-		end)
-
-	end
-
-	Runtime.Connections = {}
-
-	local ui =
-		PlayerGui:FindFirstChild(
-			"PaperAutomationUI"
-		)
-
-	if ui then
-		ui:Destroy()
-	end
-
-end
-
---------------------------------------------------
--- REMOTE
---------------------------------------------------
-
-local Event =
-	ReplicatedStorage
-		:WaitForChild("Paper")
-		:WaitForChild("Remotes")
-		:WaitForChild("__remotefunction")
-
---------------------------------------------------
--- GAME VALUES
---------------------------------------------------
-
-local EggMultiplier =
-	ReplicatedStorage
-		:WaitForChild("Values")
-		:WaitForChild("EggMultiplier")
-
---------------------------------------------------
--- GAME HUD
---------------------------------------------------
-
-local GameMainGui =
-	PlayerGui:WaitForChild("Main")
-
-local EggsTextObject =
-	GameMainGui
-		:WaitForChild("Eggs")
-		:WaitForChild("Amount")
-		:WaitForChild("Amt")
-
-local CashTextObject =
-	GameMainGui
-		:WaitForChild("Currencies")
-		:WaitForChild("Cash")
-		:WaitForChild("List")
-		:WaitForChild("Amount")
-
-local GemsResetTextObject =
-	GameMainGui
-		:WaitForChild("Currencies")
-		:WaitForChild("Gems")
-		:WaitForChild("List")
-		:WaitForChild("Collect")
-		:WaitForChild("Collected")
-
---------------------------------------------------
--- ERROR THROTTLE
---------------------------------------------------
-
-local ERROR_COOLDOWN = 10
-
-local function WarnThrottled(
-	key,
-	message
-)
-
-	local now = os.clock()
-
-	local previous =
-		Runtime.LastErrors[key]
-		or 0
-
-	if now - previous < ERROR_COOLDOWN then
-		return
-	end
-
-	Runtime.LastErrors[key] =
-		now
-
-	warn(message)
-
-end
-
---------------------------------------------------
--- REMOTE HELPER
---------------------------------------------------
-
-local function InvokeRemote(
-	key,
-	...
-)
-
-	if not Runtime.Alive then
-		return false
-	end
-
-	if Runtime.RemoteBusy[key] then
-		return false
-	end
-
-	Runtime.RemoteBusy[key] = true
-
-	local args =
-		table.pack(...)
-
-	local success, result =
-		pcall(function()
-
-			return Event:InvokeServer(
-				table.unpack(
-					args,
-					1,
-					args.n
-				)
-			)
-
-		end)
-
-	Runtime.RemoteBusy[key] = false
-
-	if not success then
-
-		WarnThrottled(
-			key,
-			"[Chicken Farm] "
-				.. key
-				.. " failed: "
-				.. tostring(result)
-		)
-
-	end
-
-	return success, result
-
-end
-
---------------------------------------------------
--- REMOVE OLD UI
---------------------------------------------------
-
-local oldUI =
-	PlayerGui:FindFirstChild(
-		"PaperAutomationUI"
-	)
-
-if oldUI then
-	oldUI:Destroy()
-end
-
---------------------------------------------------
--- SCREEN GUI
---------------------------------------------------
-
-local ScreenGui =
-	Instance.new("ScreenGui")
-
-ScreenGui.Name =
-	"PaperAutomationUI"
-
-ScreenGui.ResetOnSpawn =
-	false
-
-ScreenGui.ZIndexBehavior =
-	Enum.ZIndexBehavior.Sibling
-
-ScreenGui.DisplayOrder =
-	99999
-
-ScreenGui.Parent =
-	PlayerGui
-
---------------------------------------------------
--- MAIN
---------------------------------------------------
-
-local Main =
-	Instance.new("Frame")
-
-Main.Size =
-	UDim2.new(
-		0,
-		410,
-		0,
-		600
-	)
-
-local pos =
-	Settings.uiPosition
-	or DEFAULT_SETTINGS.uiPosition
-
-Main.Position =
-	UDim2.new(
-		tonumber(pos.xScale) or 0.5,
-		tonumber(pos.xOffset) or -205,
-		tonumber(pos.yScale) or 0.5,
-		tonumber(pos.yOffset) or -300
-	)
-
-Main.BackgroundColor3 =
-	Color3.fromRGB(
-		22,
-		22,
-		22
-	)
-
-Main.BorderSizePixel = 0
-Main.Active = true
-Main.Parent = ScreenGui
-
-local MainCorner =
-	Instance.new("UICorner")
-
-MainCorner.CornerRadius =
-	UDim.new(0,14)
-
-MainCorner.Parent =
-	Main
-
---------------------------------------------------
--- TITLE
---------------------------------------------------
-
-local Title =
-	Instance.new("TextLabel")
-
-Title.Size =
-	UDim2.new(
-		1,
-		-20,
-		0,
-		48
-	)
-
-Title.Position =
-	UDim2.new(
-		0,
-		10,
-		0,
-		0
-	)
-
-Title.BackgroundTransparency =
-	1
-
-Title.Text =
-	"🐔  Chicken Farm"
-
-Title.TextColor3 =
-	Color3.fromRGB(
-		255,
-		255,
-		255
-	)
-
-Title.Font =
-	Enum.Font.GothamBold
-
-Title.TextSize =
-	21
-
-Title.Parent =
-	Main
-
---------------------------------------------------
--- DRAG
---------------------------------------------------
-
-local dragging = false
-local dragStart = nil
-local dragInput = nil
-local startPosition = nil
-
-TrackConnection(
-
-	Title.InputBegan:
-		Connect(function(input)
-
-			if input.UserInputType ~=
-				Enum.UserInputType.MouseButton1
-			then
-				return
-			end
-
-			dragging = true
-			dragStart = input.Position
-			startPosition = Main.Position
-
-		end)
-
-)
-
-TrackConnection(
-
-	Title.InputChanged:
-		Connect(function(input)
-
-			if input.UserInputType ==
-				Enum.UserInputType.MouseMovement
-			then
-
-				dragInput = input
-
-			end
-
-		end)
-
-)
-
-TrackConnection(
-
-	UserInputService.InputChanged:
-		Connect(function(input)
-
-			if not dragging
-				or input ~= dragInput
-			then
-				return
-			end
-
-			local delta =
-				input.Position
-				- dragStart
-
-			Main.Position =
-				UDim2.new(
-					startPosition.X.Scale,
-					startPosition.X.Offset + delta.X,
-					startPosition.Y.Scale,
-					startPosition.Y.Offset + delta.Y
-				)
-
-		end)
-
-)
-
-TrackConnection(
-
-	UserInputService.InputEnded:
-		Connect(function(input)
-
-			if input.UserInputType ~=
-				Enum.UserInputType.MouseButton1
-			then
-				return
-			end
-
-			if not dragging then
-				return
-			end
-
-			dragging = false
-
-			Settings.uiPosition = {
-				xScale = Main.Position.X.Scale,
-				xOffset = Main.Position.X.Offset,
-				yScale = Main.Position.Y.Scale,
-				yOffset = Main.Position.Y.Offset
-			}
-
-			SaveSettings()
-
-		end)
-
-)
-
---------------------------------------------------
--- TAB BUTTON
---------------------------------------------------
-
-local function CreateTab(
-	text,
-	position
-)
-
-	local Button =
-		Instance.new("TextButton")
-
-	Button.Size =
-		UDim2.new(
-			0.5,
-			-15,
-			0,
-			38
-		)
-
-	Button.Position =
-		position
-
-	Button.BackgroundColor3 =
-		Color3.fromRGB(
-			45,
-			45,
-			45
-		)
-
-	Button.Text =
-		text
-
-	Button.TextColor3 =
-		Color3.fromRGB(
-			255,
-			255,
-			255
-		)
-
-	Button.Font =
-		Enum.Font.GothamBold
-
-	Button.TextSize =
-		15
-
-	Button.Parent =
-		Main
-
-	local Corner =
-		Instance.new("UICorner")
-
-	Corner.CornerRadius =
-		UDim.new(0,8)
-
-	Corner.Parent =
-		Button
-
-	return Button
-end
-
-local FarmTab =
-	CreateTab(
-		"Farm",
-		UDim2.new(0,10,0,48)
-	)
-
-local StatsTab =
-	CreateTab(
-		"Stats",
-		UDim2.new(0.5,5,0,48)
-	)
-
---------------------------------------------------
--- PAGES
---------------------------------------------------
-
-local FarmPage =
-	Instance.new("Frame")
-
-FarmPage.Size =
-	UDim2.new(
-		1,
-		0,
-		1,
-		-96
-	)
-
-FarmPage.Position =
-	UDim2.new(
-		0,
-		0,
-		0,
-		96
-	)
-
-FarmPage.BackgroundTransparency =
-	1
-
-FarmPage.Parent =
-	Main
-
-local StatsPage =
-	Instance.new("Frame")
-
-StatsPage.Size =
-	FarmPage.Size
-
-StatsPage.Position =
-	FarmPage.Position
-
-StatsPage.BackgroundTransparency =
-	1
-
-StatsPage.Visible =
-	false
-
-StatsPage.Parent =
-	Main
-
---------------------------------------------------
--- TABS
---------------------------------------------------
-
-local currentPage =
-	"Farm"
-
-local function UpdateTabs()
-
-	FarmPage.Visible =
-		currentPage == "Farm"
-
-	StatsPage.Visible =
-		currentPage == "Stats"
-
-	FarmTab.BackgroundColor3 =
-		currentPage == "Farm"
-		and Color3.fromRGB(55,145,80)
-		or Color3.fromRGB(45,45,45)
-
-	StatsTab.BackgroundColor3 =
-		currentPage == "Stats"
-		and Color3.fromRGB(55,145,80)
-		or Color3.fromRGB(45,45,45)
-
-end
-
-UpdateTabs()
-
-TrackConnection(
-	FarmTab.Activated:
-		Connect(function()
-			currentPage = "Farm"
-			UpdateTabs()
-		end)
-)
-
-TrackConnection(
-	StatsTab.Activated:
-		Connect(function()
-			currentPage = "Stats"
-			UpdateTabs()
-		end)
-)
-
---------------------------------------------------
--- TOGGLE
---------------------------------------------------
-
-local function CreateToggle(
-	text,
-	y,
-	initialState,
-	callback
-)
-
-	local Label =
-		Instance.new("TextLabel")
-
-	Label.Size =
-		UDim2.new(
-			0,
-			240,
-			0,
-			40
-		)
-
-	Label.Position =
-		UDim2.new(
-			0,
-			18,
-			0,
-			y
-		)
-
-	Label.BackgroundTransparency =
-		1
-
-	Label.Text =
-		text
-
-	Label.TextColor3 =
-		Color3.fromRGB(
-			238,
-			238,
-			238
-		)
-
-	Label.Font =
-		Enum.Font.GothamMedium
-
-	Label.TextSize =
-		15
-
-	Label.TextXAlignment =
-		Enum.TextXAlignment.Left
-
-	Label.Parent =
-		FarmPage
-
-	local Button =
-		Instance.new("TextButton")
-
-	Button.Size =
-		UDim2.new(
-			0,
-			100,
-			0,
-			34
-		)
-
-	Button.Position =
-		UDim2.new(
-			1,
-			-118,
-			0,
-			y + 3
-		)
-
-	Button.TextColor3 =
-		Color3.fromRGB(
-			255,
-			255,
-			255
-		)
-
-	Button.Font =
-		Enum.Font.GothamBold
-
-	Button.TextSize =
-		14
-
-	Button.Parent =
-		FarmPage
-
-	local Corner =
-		Instance.new("UICorner")
-
-	Corner.CornerRadius =
-		UDim.new(0,8)
-
-	Corner.Parent =
-		Button
-
-	local enabled =
-		initialState == true
-
-	local function Update()
-
-		if enabled then
-
-			Button.Text = "AN"
-
-			Button.BackgroundColor3 =
-				Color3.fromRGB(
-					48,
-					165,
-					78
-				)
-
-		else
-
-			Button.Text = "AUS"
-
-			Button.BackgroundColor3 =
-				Color3.fromRGB(
-					165,
-					58,
-					58
-				)
-
-		end
-
-	end
-
-	Update()
-
-	TrackConnection(
-
-		Button.Activated:
-			Connect(function()
-
-				enabled =
-					not enabled
-
-				Update()
-
-				callback(
-					enabled
-				)
-
-				SaveSettings()
-
-			end)
-
-	)
-
-end
-
---------------------------------------------------
--- CHICKEN AMOUNT
---------------------------------------------------
-
-local ChickenLabel =
-	Instance.new("TextLabel")
-
-ChickenLabel.Size =
-	UDim2.new(0,220,0,38)
-
-ChickenLabel.Position =
-	UDim2.new(0,18,0,0)
-
-ChickenLabel.BackgroundTransparency =
-	1
-
-ChickenLabel.Text =
-	"Chicken Amount"
-
-ChickenLabel.TextColor3 =
-	Color3.fromRGB(
-		238,
-		238,
-		238
-	)
-
-ChickenLabel.Font =
-	Enum.Font.GothamMedium
-
-ChickenLabel.TextSize =
-	15
-
-ChickenLabel.TextXAlignment =
-	Enum.TextXAlignment.Left
-
-ChickenLabel.Parent =
-	FarmPage
-
---------------------------------------------------
--- DROPDOWN
---------------------------------------------------
-
-local Dropdown =
-	Instance.new("TextButton")
-
-Dropdown.Size =
-	UDim2.new(0,140,0,34)
-
-Dropdown.Position =
-	UDim2.new(1,-158,0,2)
-
-Dropdown.BackgroundColor3 =
-	Color3.fromRGB(45,45,45)
-
-Dropdown.Text =
-	tostring(selectedChickenAmount)
-	.. " ▼"
-
-Dropdown.TextColor3 =
-	Color3.new(1,1,1)
-
-Dropdown.Font =
-	Enum.Font.GothamBold
-
-Dropdown.TextSize =
-	14
-
-Dropdown.ZIndex =
-	50
-
-Dropdown.Parent =
-	FarmPage
-
-local DropdownCorner =
-	Instance.new("UICorner")
-
-DropdownCorner.CornerRadius =
-	UDim.new(0,8)
-
-DropdownCorner.Parent =
-	Dropdown
-
---------------------------------------------------
--- DROPDOWN LIST
---------------------------------------------------
-
-local DropdownList =
-	Instance.new("Frame")
-
-DropdownList.Size =
-	UDim2.new(0,140,0,152)
-
-DropdownList.Position =
-	UDim2.new(1,-158,0,38)
-
-DropdownList.BackgroundColor3 =
-	Color3.fromRGB(30,30,30)
-
-DropdownList.BorderSizePixel =
-	0
-
-DropdownList.Visible =
-	false
-
-DropdownList.ZIndex =
-	100
-
-DropdownList.Parent =
-	FarmPage
-
-local DropdownListCorner =
-	Instance.new("UICorner")
-
-DropdownListCorner.CornerRadius =
-	UDim.new(0,8)
-
-DropdownListCorner.Parent =
-	DropdownList
-
-for index, amount in ipairs(
-	chickenOptions
-) do
-
-	local Option =
-		Instance.new("TextButton")
-
-	Option.Size =
-		UDim2.new(1,-8,0,34)
-
-	Option.Position =
-		UDim2.new(
-			0,
-			4,
-			0,
-			4 + ((index - 1) * 36)
-		)
-
-	Option.BackgroundColor3 =
-		Color3.fromRGB(42,42,42)
-
-	Option.BorderSizePixel =
-		0
-
-	Option.Text =
-		tostring(amount)
-
-	Option.TextColor3 =
-		Color3.new(1,1,1)
-
-	Option.Font =
-		Enum.Font.GothamBold
-
-	Option.TextSize =
-		15
-
-	Option.Active =
-		true
-
-	Option.ZIndex =
-		101 + index
-
-	Option.Parent =
-		DropdownList
-
-	local Corner =
-		Instance.new("UICorner")
-
-	Corner.CornerRadius =
-		UDim.new(0,6)
-
-	Corner.Parent =
-		Option
-
-	TrackConnection(
-
-		Option.Activated:
-			Connect(function()
-
-				selectedChickenAmount =
-					amount
-
-				Settings.selectedChickenAmount =
-					amount
-
-				Dropdown.Text =
-					tostring(amount)
-					.. " ▼"
-
-				DropdownList.Visible =
-					false
-
-				SaveSettings()
-
-			end)
-
-	)
-
-end
-
-TrackConnection(
-
-	Dropdown.Activated:
-		Connect(function()
-
-			DropdownList.Visible =
-				not DropdownList.Visible
-
-			Dropdown.Text =
-				tostring(selectedChickenAmount)
-				..
-				(
-					DropdownList.Visible
-					and " ▲"
-					or " ▼"
-				)
-
-		end)
-
-)
-
---------------------------------------------------
--- AUTO BUY
---------------------------------------------------
-
-CreateToggle(
-	"Auto Buy Chickens",
-	44,
-	chickenEnabled,
-	function(value)
-
-		chickenEnabled =
-			value
-
-		Settings.chickenEnabled =
-			value
-
-	end
-)
-
---------------------------------------------------
--- AUTO SELL
---------------------------------------------------
-
-CreateToggle(
-	"Auto Sell Eggs",
-	86,
-	autoSellEggs,
-	function(value)
-
-		autoSellEggs =
-			value
-
-		Settings.autoSellEggs =
-			value
-
-	end
-)
-
---------------------------------------------------
--- CURRENT MULTIPLIER
---------------------------------------------------
-
-local MultiLabel =
-	Instance.new("TextLabel")
-
-MultiLabel.Size =
-	UDim2.new(0,230,0,36)
-
-MultiLabel.Position =
-	UDim2.new(0,18,0,128)
-
-MultiLabel.BackgroundTransparency =
-	1
-
-MultiLabel.Text =
-	"Current Egg Multiplier"
-
-MultiLabel.TextColor3 =
-	Color3.fromRGB(
-		238,
-		238,
-		238
-	)
-
-MultiLabel.Font =
-	Enum.Font.GothamMedium
-
-MultiLabel.TextSize =
-	15
-
-MultiLabel.TextXAlignment =
-	Enum.TextXAlignment.Left
-
-MultiLabel.Parent =
-	FarmPage
-
-local MultiValue =
-	Instance.new("TextLabel")
-
-MultiValue.Size =
-	UDim2.new(0,100,0,32)
-
-MultiValue.Position =
-	UDim2.new(1,-118,0,130)
-
-MultiValue.BackgroundColor3 =
-	Color3.fromRGB(39,39,39)
-
-MultiValue.TextColor3 =
-	Color3.new(1,1,1)
-
-MultiValue.Font =
-	Enum.Font.GothamBold
-
-MultiValue.TextSize =
-	15
-
-MultiValue.Parent =
-	FarmPage
-
---------------------------------------------------
--- SELL THRESHOLD
---------------------------------------------------
-
-local SellLabel =
-	Instance.new("TextLabel")
-
-SellLabel.Size =
-	UDim2.new(0,220,0,36)
-
-SellLabel.Position =
-	UDim2.new(0,18,0,168)
-
-SellLabel.BackgroundTransparency =
-	1
-
-SellLabel.Text =
-	"Sell at Multiplier"
-
-SellLabel.TextColor3 =
-	Color3.fromRGB(
-		238,
-		238,
-		238
-	)
-
-SellLabel.Font =
-	Enum.Font.GothamMedium
-
-SellLabel.TextSize =
-	15
-
-SellLabel.TextXAlignment =
-	Enum.TextXAlignment.Left
-
-SellLabel.Parent =
-	FarmPage
-
-local MultiplierBox =
-	Instance.new("TextBox")
-
-MultiplierBox.Size =
-	UDim2.new(0,100,0,32)
-
-MultiplierBox.Position =
-	UDim2.new(1,-118,0,170)
-
-MultiplierBox.BackgroundColor3 =
-	Color3.fromRGB(45,45,45)
-
-MultiplierBox.Text =
-	tostring(sellAtMultiplier)
-
-MultiplierBox.PlaceholderText =
-	"0.5 - 1.5"
-
-MultiplierBox.TextColor3 =
-	Color3.new(1,1,1)
-
-MultiplierBox.Font =
-	Enum.Font.GothamBold
-
-MultiplierBox.TextSize =
-	15
-
-MultiplierBox.ClearTextOnFocus =
-	false
-
-MultiplierBox.Parent =
-	FarmPage
-
-local MultiplierCorner =
-	Instance.new("UICorner")
-
-MultiplierCorner.CornerRadius =
-	UDim.new(0,8)
-
-MultiplierCorner.Parent =
-	MultiplierBox
-
-TrackConnection(
-
-	MultiplierBox.FocusLost:
-		Connect(function()
-
-			local value =
-				tonumber(
-					MultiplierBox.Text:
-						gsub(",",".")
-				)
-
-			if value then
-
-				value =
-					math.clamp(
-						value,
-						0.5,
-						1.5
-					)
-
-				value =
-					math.floor(
-						value * 100 + 0.5
-					) / 100
-
-				sellAtMultiplier =
-					value
-
-				Settings.sellAtMultiplier =
-					value
-
-				SaveSettings()
-
-			end
-
-			MultiplierBox.Text =
-				tostring(
-					sellAtMultiplier
-				)
-
-		end)
-
-)
-
---------------------------------------------------
--- OTHER TOGGLES
---------------------------------------------------
-
-CreateToggle(
-	"Auto Process Upgrade",
-	214,
-	autoProcessUpgrade,
-	function(value)
-
-		autoProcessUpgrade =
-			value
-
-		Settings.autoProcessUpgrade =
-			value
-
-	end
-)
-
-CreateToggle(
-	"Auto Tier Upgrade",
-	256,
-	autoTierUpgrade,
-	function(value)
-
-		autoTierUpgrade =
-			value
-
-		Settings.autoTierUpgrade =
-			value
-
-	end
-)
-
-CreateToggle(
-	"Auto Group Reward",
-	298,
-	autoGroupReward,
-	function(value)
-
-		autoGroupReward =
-			value
-
-		Settings.autoGroupReward =
-			value
-
-	end
-)
-
-CreateToggle(
-	"Auto Collect Cash",
-	340,
-	autoCollectCash,
-	function(value)
-
-		autoCollectCash =
-			value
-
-		Settings.autoCollectCash =
-			value
-
-	end
-)
-
-CreateToggle(
-	"Anti AFK",
-	382,
-	antiAFK,
-	function(value)
-
-		antiAFK =
-			value
-
-		Settings.antiAFK =
-			value
-
-	end
-)
-
---------------------------------------------------
--- HOTKEY
---------------------------------------------------
-
-local function GetKeyName(key)
-
-	if key == Enum.KeyCode.RightControl then
-		return "Right Ctrl"
-	end
-
-	if key == Enum.KeyCode.LeftControl then
-		return "Left Ctrl"
-	end
-
-	if key == Enum.KeyCode.RightShift then
-		return "Right Shift"
-	end
-
-	if key == Enum.KeyCode.LeftShift then
-		return "Left Shift"
-	end
-
-	return key.Name
-end
-
-local HotkeyLabel =
-	Instance.new("TextLabel")
-
-HotkeyLabel.Size =
-	UDim2.new(0,220,0,36)
-
-HotkeyLabel.Position =
-	UDim2.new(0,18,0,428)
-
-HotkeyLabel.BackgroundTransparency =
-	1
-
-HotkeyLabel.Text =
-	"UI Hotkey"
-
-HotkeyLabel.TextColor3 =
-	Color3.fromRGB(
-		238,
-		238,
-		238
-	)
-
-HotkeyLabel.Font =
-	Enum.Font.GothamMedium
-
-HotkeyLabel.TextSize =
-	15
-
-HotkeyLabel.TextXAlignment =
-	Enum.TextXAlignment.Left
-
-HotkeyLabel.Parent =
-	FarmPage
-
-local HotkeyButton =
-	Instance.new("TextButton")
-
-HotkeyButton.Size =
-	UDim2.new(0,100,0,32)
-
-HotkeyButton.Position =
-	UDim2.new(1,-118,0,430)
-
-HotkeyButton.BackgroundColor3 =
-	Color3.fromRGB(45,45,45)
-
-HotkeyButton.Text =
-	GetKeyName(uiHotkey)
-
-HotkeyButton.TextColor3 =
-	Color3.new(1,1,1)
-
-HotkeyButton.Font =
-	Enum.Font.GothamBold
-
-HotkeyButton.TextSize =
-	13
-
-HotkeyButton.Parent =
-	FarmPage
-
-local HotkeyCorner =
-	Instance.new("UICorner")
-
-HotkeyCorner.CornerRadius =
-	UDim.new(0,8)
-
-HotkeyCorner.Parent =
-	HotkeyButton
-
-TrackConnection(
-
-	HotkeyButton.Activated:
-		Connect(function()
-
-			waitingForHotkey =
-				true
-
-			HotkeyButton.Text =
-				"Press Key..."
-
-		end)
-
-)
-
---------------------------------------------------
--- STATS TITLE
---------------------------------------------------
-
-local StatsTitle =
-	Instance.new("TextLabel")
-
-StatsTitle.Size =
-	UDim2.new(1,-36,0,42)
-
-StatsTitle.Position =
-	UDim2.new(0,18,0,4)
-
-StatsTitle.BackgroundTransparency =
-	1
-
-StatsTitle.Text =
-	"Session Stats"
-
-StatsTitle.TextColor3 =
-	Color3.new(1,1,1)
-
-StatsTitle.Font =
-	Enum.Font.GothamBold
-
-StatsTitle.TextSize =
-	20
-
-StatsTitle.TextXAlignment =
-	Enum.TextXAlignment.Left
-
-StatsTitle.Parent =
-	StatsPage
-
---------------------------------------------------
--- STAT ROW
---------------------------------------------------
-
-local function CreateStatRow(
-	name,
-	y
-)
-
-	local Label =
-		Instance.new("TextLabel")
-
-	Label.Size =
-		UDim2.new(0.50,-20,0,42)
-
-	Label.Position =
-		UDim2.new(0,18,0,y)
-
-	Label.BackgroundTransparency =
-		1
-
-	Label.Text =
-		name
-
-	Label.TextColor3 =
-		Color3.fromRGB(
-			225,
-			225,
-			225
-		)
-
-	Label.Font =
-		Enum.Font.GothamMedium
-
-	Label.TextSize =
-		15
-
-	Label.TextXAlignment =
-		Enum.TextXAlignment.Left
-
-	Label.Parent =
-		StatsPage
-
-	local Value =
-		Instance.new("TextLabel")
-
-	Value.Size =
-		UDim2.new(0.50,-25,0,36)
-
-	Value.Position =
-		UDim2.new(0.5,7,0,y + 3)
-
-	Value.BackgroundColor3 =
-		Color3.fromRGB(39,39,39)
-
-	Value.Text =
-		"N/A"
-
-	Value.TextColor3 =
-		Color3.new(1,1,1)
-
-	Value.Font =
-		Enum.Font.GothamBold
-
-	Value.TextSize =
-		14
-
-	Value.Parent =
-		StatsPage
-
-	local Corner =
-		Instance.new("UICorner")
-
-	Corner.CornerRadius =
-		UDim.new(0,8)
-
-	Corner.Parent =
-		Value
-
-	return Value
-end
-
---------------------------------------------------
--- STATS
---------------------------------------------------
-
-local EggsStat =
-	CreateStatRow(
-		"Eggs",
-		52
-	)
-
-local EPSStat =
-	CreateStatRow(
-		"Eggs / second",
-		100
-	)
-
-local CashStat =
-	CreateStatRow(
-		"Cash",
-		148
-	)
-
-local MultiplierStat =
-	CreateStatRow(
-		"Egg Multiplier",
-		196
-	)
-
-local GroupStat =
-	CreateStatRow(
-		"Next Group Reward",
-		244
-	)
-
-local RebirthProgressStat =
-	CreateStatRow(
-		"Rebirth Progress",
-		292
-	)
-
-local GemsResetStat =
-	CreateStatRow(
-		"Gems Reset",
-		340
-	)
-
---------------------------------------------------
--- NUMBER SUFFIXES
---------------------------------------------------
-
-local SUFFIXES = {
-	[""] = 1,
-	["k"] = 1e3,
-	["m"] = 1e6,
-	["b"] = 1e9,
-	["t"] = 1e12,
-	["qd"] = 1e15,
-	["qn"] = 1e18,
-	["sx"] = 1e21,
-	["sp"] = 1e24,
-	["oc"] = 1e27,
-	["no"] = 1e30,
-	["dc"] = 1e33
-}
-
-local FORMAT_SUFFIXES = {
-	{1e33, "Dc"},
-	{1e30, "No"},
-	{1e27, "Oc"},
-	{1e24, "Sp"},
-	{1e21, "Sx"},
-	{1e18, "Qn"},
-	{1e15, "Qd"},
-	{1e12, "T"},
-	{1e9, "B"},
-	{1e6, "M"},
-	{1e3, "K"}
-}
-
---------------------------------------------------
--- PARSE LARGE NUMBER
---------------------------------------------------
-
-local function ParseLargeNumber(text)
-
-	if type(text) ~= "string" then
-		return nil
-	end
-
-	text =
-		text:
-			gsub("<.->", ""):
-			gsub("%$", ""):
-			gsub(",", ""):
-			gsub("%s+", ""):
-			gsub("%+", "")
-
-	local numberPart, suffix =
-		text:match(
-			"([%d%.]+)([%a]*)"
-		)
-
-	if not numberPart then
-		return nil
-	end
-
-	local number =
-		tonumber(numberPart)
-
-	if not number then
-		return nil
-	end
-
-	suffix =
-		(suffix or ""):lower()
-
-	local multiplier =
-		SUFFIXES[suffix]
-
-	if multiplier == nil then
-		return nil
-	end
-
-	return number * multiplier
-end
-
---------------------------------------------------
--- FORMAT LARGE NUMBER
---------------------------------------------------
-
-local function FormatLargeNumber(value)
-
-	value =
-		tonumber(value)
-
-	if not value then
-		return "N/A"
-	end
-
-	local abs =
-		math.abs(value)
-
-	for _, entry in ipairs(
-		FORMAT_SUFFIXES
-	) do
-
-		if abs >= entry[1] then
-
-			return string.format(
-				"%.2f%s",
-				value / entry[1],
-				entry[2]
-			)
-
-		end
-
-	end
-
-	if abs >= 100 then
-
-		return string.format(
-			"%.0f",
-			value
-		)
-
-	end
-
-	return string.format(
-		"%.2f",
-		value
-	)
-end
-
---------------------------------------------------
--- TIME FORMAT
---------------------------------------------------
-
 local function FormatTime(seconds)
-
-	if not seconds then
-		return "N/A"
-	end
-
-	seconds =
-		math.max(
-			0,
-			math.floor(seconds)
-		)
-
-	local hours =
-		math.floor(
-			seconds / 3600
-		)
-
-	local minutes =
-		math.floor(
-			(seconds % 3600) / 60
-		)
-
-	local secs =
-		seconds % 60
-
-	if hours > 0 then
-
-		return string.format(
-			"%02dh %02dm %02ds",
-			hours,
-			minutes,
-			secs
-		)
-
-	end
-
-	return string.format(
-		"%02dm %02ds",
-		minutes,
-		secs
-	)
+	seconds = math.max(0, math.floor(tonumber(seconds) or 0))
+	local h, m, s = math.floor(seconds/3600), math.floor((seconds%3600)/60), seconds%60
+	return h > 0 and string.format("%02dh %02dm %02ds",h,m,s) or string.format("%02dm %02ds",m,s)
+end
+local function ObjectText(object)
+	if object and (object:IsA("TextLabel") or object:IsA("TextButton") or object:IsA("TextBox")) then return tostring(object.Text):gsub("<.->","") end
 end
 
---------------------------------------------------
--- GUI TEXT
---------------------------------------------------
-
-local function GetObjectText(object)
-
-	if object:IsA("TextLabel")
-		or object:IsA("TextButton")
-		or object:IsA("TextBox")
-	then
-
-		return tostring(
-			object.Text
-		):gsub(
-			"<.->",
-			""
-		)
-
+local oldUI = PlayerGui:FindFirstChild("PaperAutomationUI")
+if oldUI then oldUI:Destroy() end
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name, ScreenGui.ResetOnSpawn, ScreenGui.DisplayOrder = "PaperAutomationUI", false, 99999
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = PlayerGui
+local Main = Instance.new("Frame")
+Main.Name, Main.Size = "Main", UDim2.fromOffset(430,570)
+Main.Position = UDim2.new(Settings.uiPosition.xScale,Settings.uiPosition.xOffset,Settings.uiPosition.yScale,Settings.uiPosition.yOffset)
+Main.BackgroundColor3, Main.BorderSizePixel, Main.Active, Main.ClipsDescendants = C.background,0,true,true
+Main.Parent = ScreenGui
+local mainCorner = Instance.new("UICorner",Main) mainCorner.CornerRadius = UDim.new(0,14)
+local stroke = Instance.new("UIStroke",Main) stroke.Color = C.outline
+local Scale = Instance.new("UIScale",Main)
+local function UpdateScale()
+	local camera = Workspace.CurrentCamera
+	if camera then
+		local v = camera.ViewportSize
+		Scale.Scale = math.clamp(math.min((v.X-20)/430,(v.Y-20)/570),.62,1)
 	end
+end
+UpdateScale()
+if Workspace.CurrentCamera then Track(Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(UpdateScale)) end
 
-	return nil
+local function Round(object,radius) local corner=Instance.new("UICorner",object) corner.CornerRadius=UDim.new(0,radius or 8) end
+local function Text(parent,text,size,color,bold)
+	local x=Instance.new("TextLabel") x.BackgroundTransparency=1 x.Text=text x.TextColor3=color or C.text
+	x.Font=bold and Enum.Font.GothamBold or Enum.Font.GothamMedium x.TextSize=size or 14
+	x.TextXAlignment=Enum.TextXAlignment.Left x.Parent=parent return x
+end
+local function Button(parent,text,width)
+	local x=Instance.new("TextButton") x.Size=UDim2.fromOffset(width or 90,34) x.BackgroundColor3=C.control
+	x.BorderSizePixel=0 x.Text=text x.TextColor3=C.text x.Font=Enum.Font.GothamBold x.TextSize=13 x.Parent=parent Round(x) return x
+end
+local Header=Instance.new("Frame",Main) Header.Size=UDim2.new(1,0,0,52) Header.BackgroundTransparency=1
+local Title=Text(Header,"🐔  Chicken Farm",20,C.text,true) Title.Size=UDim2.new(1,-118,1,0) Title.Position=UDim2.fromOffset(14,0)
+local MinButton=Button(Header,"—",34) MinButton.Position=UDim2.new(1,-78,0,9) MinButton.TextSize=18
+local CloseButton=Button(Header,"×",34) CloseButton.Position=UDim2.new(1,-40,0,9) CloseButton.BackgroundColor3=C.danger CloseButton.TextSize=18
+local TabBar=Instance.new("Frame",Main) TabBar.Size=UDim2.new(1,-20,0,40) TabBar.Position=UDim2.fromOffset(10,52) TabBar.BackgroundTransparency=1
+local FarmTab=Button(TabBar,"Farm",199) FarmTab.Size=UDim2.new(.5,-3,0,36)
+local StatsTab=Button(TabBar,"Statistiken",199) StatsTab.Size=UDim2.new(.5,-3,0,36) StatsTab.Position=UDim2.new(.5,3,0,0)
+local Pages=Instance.new("Frame",Main) Pages.Size=UDim2.new(1,0,1,-130) Pages.Position=UDim2.fromOffset(0,94) Pages.BackgroundTransparency=1
+local function Page()
+	local p=Instance.new("ScrollingFrame") p.Size=UDim2.fromScale(1,1) p.BackgroundTransparency=1 p.BorderSizePixel=0
+	p.ScrollBarThickness=5 p.ScrollBarImageColor3=C.accent p.AutomaticCanvasSize=Enum.AutomaticSize.Y p.CanvasSize=UDim2.new() p.Parent=Pages
+	local pad=Instance.new("UIPadding",p) pad.PaddingLeft=UDim.new(0,12) pad.PaddingRight=UDim.new(0,12) pad.PaddingTop=UDim.new(0,6) pad.PaddingBottom=UDim.new(0,12)
+	local list=Instance.new("UIListLayout",p) list.Padding=UDim.new(0,8) list.SortOrder=Enum.SortOrder.LayoutOrder return p
+end
+local FarmPage, StatsPage = Page(), Page() StatsPage.Visible=false
+local currentPage="Farm"
+local Status=Instance.new("TextLabel",Main) Status.Size=UDim2.new(1,-20,0,28) Status.Position=UDim2.new(0,10,1,-32)
+Status.BackgroundColor3=C.surface Status.Text="Bereit" Status.TextColor3=C.muted Status.Font=Enum.Font.GothamMedium
+Status.TextSize=12 Status.TextTruncate=Enum.TextTruncate.AtEnd Round(Status,7)
+local function SetStatus(message,kind)
+	if not Runtime.Alive or not Status.Parent then return end
+	Status.Text=tostring(message) Status.TextColor3=kind=="error" and C.danger or kind=="warning" and C.warning or kind=="success" and C.accent or C.muted
+end
+local function Row(parent,label,height)
+	local row=Instance.new("Frame") row.Size=UDim2.new(1,0,0,height or 46) row.BackgroundColor3=C.surface row.BorderSizePixel=0 row.Parent=parent Round(row,9)
+	local name=Text(row,label,14,C.text,false) name.Size=UDim2.new(1,-150,1,0) name.Position=UDim2.fromOffset(12,0) return row,name
+end
+local function Heading(parent,text)
+	local label=Text(parent,text,13,C.muted,true) label.Size=UDim2.new(1,0,0,24) return label
+end
+local function ToggleVisual(button,enabled) button.Text=enabled and "AN" or "AUS" button.BackgroundColor3=enabled and C.accent or C.danger end
+local function Toggle(parent,id,label,initial,callback)
+	local row=Row(parent,label) local button=Button(row,"",86) button.Position=UDim2.new(1,-98,.5,-17)
+	local enabled=initial==true ToggleVisual(button,enabled)
+	Track(button.Activated:Connect(function() enabled=not enabled ToggleVisual(button,enabled) callback(enabled) SaveSettings() end))
+	Runtime.Controls[id]={row=row,button=button,set=function(value) enabled=value==true ToggleVisual(button,enabled) end}
+	return row
 end
 
---------------------------------------------------
--- FIND REBIRTH REQUIREMENT
---------------------------------------------------
-
-local function FindRebirthRequirement()
-
-	local bestCurrent =
-		nil
-
-	local bestRequired =
-		nil
-
-	for _, object in ipairs(
-		PlayerGui:GetDescendants()
-	) do
-
-		if not object:IsDescendantOf(
-			ScreenGui
-		) then
-
-			local text =
-				GetObjectText(
-					object
-				)
-
-			if text
-				and text:find(
-					"/",
-					1,
-					true
-				)
-			then
-
-				local left, right =
-					text:match(
-						"%$?%s*([%d%.]+%a*)%s*/%s*%$?%s*([%d%.]+%a*)"
-					)
-
-				if left
-					and right
-				then
-
-					local current =
-						ParseLargeNumber(
-							left
-						)
-
-					local required =
-						ParseLargeNumber(
-							right
-						)
-
-					if current
-						and required
-						and required > 0
-						and current <= required
-					then
-
-						if not bestRequired
-							or required >
-								bestRequired
-						then
-
-							bestCurrent =
-								current
-
-							bestRequired =
-								required
-
-						end
-
-					end
-
-				end
-
-			end
-
-		end
-
-	end
-
-	return bestCurrent,
-		bestRequired
+Heading(FarmPage,"AUTOMATISIERUNG")
+local amountRow=Row(FarmPage,"Anzahl Hühner",58)
+local amountButtons={}
+for index,amount in ipairs({1,5,25,100}) do
+	local button=Button(amountRow,tostring(amount),48) button.Size=UDim2.fromOffset(48,30) button.Position=UDim2.new(1,-220+(index-1)*52,.5,-15)
+	amountButtons[amount]=button
+	Track(button.Activated:Connect(function()
+		Settings.selectedChickenAmount=amount
+		for option,item in pairs(amountButtons) do item.BackgroundColor3=option==amount and C.accent or C.control end
+		SaveSettings() SetStatus("Kaufmenge: "..amount.." Hühner","success")
+	end))
 end
-
---------------------------------------------------
--- EGGS PER SECOND
---------------------------------------------------
-
-local lastEggValue =
-	nil
-
-local lastEggTime =
-	nil
-
-local eggsPerSecond =
-	nil
-
-local lastDepositTime =
-	0
-
---------------------------------------------------
--- GROUP REWARD
---------------------------------------------------
-
-local GROUP_INTERVAL =
-	600
-
-local function GetGroupRemaining()
-
-	local last =
-		tonumber(
-			Settings.lastGroupRewardAttempt
-		) or 0
-
-	if last <= 0 then
-		return 0
-	end
-
-	return math.max(
-		0,
-		GROUP_INTERVAL
-		- (
-			os.time() - last
-		)
-	)
-end
-
---------------------------------------------------
--- UPDATE STATS
---------------------------------------------------
-
-local function UpdateStats()
-
-	local nowClock =
-		os.clock()
-
-	--------------------------------------------------
-	-- EGGS
-	--------------------------------------------------
-
-	local eggText =
-		tostring(
-			EggsTextObject.Text
-		)
-
-	EggsStat.Text =
-		eggText
-
-	local currentEgg =
-		ParseLargeNumber(
-			eggText
-		)
-
-	if currentEgg then
-
-		if lastEggValue
-			and lastEggTime
-		then
-
-			local elapsed =
-				nowClock
-				- lastEggTime
-
-			local difference =
-				currentEgg
-				- lastEggValue
-
-			if difference >= 0
-				and elapsed > 0
-				and nowClock - lastDepositTime > 1
-			then
-
-				local rate =
-					difference
-					/ elapsed
-
-				if eggsPerSecond then
-
-					eggsPerSecond =
-						eggsPerSecond * 0.70
-						+ rate * 0.30
-
-				else
-
-					eggsPerSecond =
-						rate
-
-				end
-
-			end
-
-		end
-
-		lastEggValue =
-			currentEgg
-
-		lastEggTime =
-			nowClock
-
-	end
-
-	if eggsPerSecond then
-
-		EPSStat.Text =
-			FormatLargeNumber(
-				eggsPerSecond
-			)
-			.. "/s"
-
-	else
-
-		EPSStat.Text =
-			"Berechne..."
-
-	end
-
-	--------------------------------------------------
-	-- CASH
-	--------------------------------------------------
-
-	CashStat.Text =
-		tostring(
-			CashTextObject.Text
-		)
-
-	--------------------------------------------------
-	-- MULTIPLIER
-	--------------------------------------------------
-
-	local multiplier =
-		tonumber(
-			EggMultiplier.Value
-		)
-		or 0
-
-	MultiValue.Text =
-		string.format(
-			"%.2fx",
-			multiplier
-		)
-
-	MultiplierStat.Text =
-		MultiValue.Text
-
-	--------------------------------------------------
-	-- GROUP REWARD
-	--------------------------------------------------
-
-	if autoGroupReward then
-
-		local remaining =
-			GetGroupRemaining()
-
-		if remaining <= 0 then
-
-			GroupStat.Text =
-				"Ready"
-
-		else
-
-			GroupStat.Text =
-				FormatTime(
-					remaining
-				)
-
-		end
-
-	else
-
-		GroupStat.Text =
-			"AUS"
-
-	end
-
-	--------------------------------------------------
-	-- REBIRTH PROGRESS
-	--------------------------------------------------
-
-	local rebirthCurrent,
-		rebirthRequired =
-		FindRebirthRequirement()
-
-	if rebirthCurrent
-		and rebirthRequired
-	then
-
-		RebirthProgressStat.Text =
-			FormatLargeNumber(
-				rebirthCurrent
-			)
-			.. " / "
-			.. FormatLargeNumber(
-				rebirthRequired
-			)
-
-	else
-
-		RebirthProgressStat.Text =
-			"Rebirth öffnen"
-
-	end
-
-	--------------------------------------------------
-	-- GEMS RESET
-	-- DIRECT ORIGINAL GAME TEXT
-	--------------------------------------------------
-
-	local success, gemsText =
-		pcall(function()
-
-			return tostring(
-				GemsResetTextObject.Text
-			)
-
-		end)
-
-	if success
-		and gemsText
-		and gemsText ~= ""
-	then
-
-		GemsResetStat.Text =
-			gemsText
-
-	else
-
-		GemsResetStat.Text =
-			"N/A"
-
-	end
-
-end
-
---------------------------------------------------
--- ANTI AFK
---------------------------------------------------
-
-TrackConnection(
-
-	Player.Idled:
-		Connect(function()
-
-			if not antiAFK then
-				return
-			end
-
-			pcall(function()
-
-				VirtualUser:
-					CaptureController()
-
-				VirtualUser:
-					ClickButton2(
-						Vector2.zero
-					)
-
-			end)
-
-		end)
-
-)
-
---------------------------------------------------
--- SCHEDULER
---------------------------------------------------
-
-local nextBuy = 0
-local nextSell = 0
-local nextProcess = 0
-local nextTier = 0
-local nextCash = 0
-local nextStats = 0
-
-task.spawn(function()
-
-	while Runtime.Alive do
-
-		local now =
-			os.clock()
-
-		--------------------------------------------------
-		-- BUY CHICKENS
-		--------------------------------------------------
-
-		if now >= nextBuy then
-
-			nextBuy =
-				now + 0.5
-
-			if chickenEnabled then
-
-				InvokeRemote(
-					"Buy Chickens",
-					"Buy Chickens",
-					selectedChickenAmount
-				)
-
-			end
-
-		end
-
-		--------------------------------------------------
-		-- SELL EGGS CONTINUOUSLY
-		--------------------------------------------------
-
-		if now >= nextSell then
-
-			nextSell =
-				now + 0.5
-
-			if autoSellEggs then
-
-				local multiplier =
-					tonumber(
-						EggMultiplier.Value
-					)
-					or 0
-
-				if multiplier >=
-					sellAtMultiplier
-				then
-
-					local success =
-						InvokeRemote(
-							"Deposit Eggs",
-							"Deposit Eggs"
-						)
-
-					if success then
-
-						lastDepositTime =
-							os.clock()
-
-					end
-
-				end
-
-			end
-
-		end
-
-		--------------------------------------------------
-		-- PROCESS UPGRADE
-		--------------------------------------------------
-
-		if now >= nextProcess then
-
-			nextProcess =
-				now + 1
-
-			if autoProcessUpgrade then
-
-				InvokeRemote(
-					"Upgrade Process Level",
-					"Upgrade Process Level"
-				)
-
-			end
-
-		end
-
-		--------------------------------------------------
-		-- TIER UPGRADE
-		--------------------------------------------------
-
-		if now >= nextTier then
-
-			nextTier =
-				now + 1
-
-			if autoTierUpgrade then
-
-				InvokeRemote(
-					"Upgrade Buy Tier Level",
-					"Upgrade Buy Tier Level"
-				)
-
-			end
-
-		end
-
-		--------------------------------------------------
-		-- COLLECT CASH
-		--------------------------------------------------
-
-		if now >= nextCash then
-
-			nextCash =
-				now + 1
-
-			if autoCollectCash then
-
-				InvokeRemote(
-					"Collect Cash",
-					"Collect Cash"
-				)
-
-			end
-
-		end
-
-		--------------------------------------------------
-		-- GROUP REWARD
-		--------------------------------------------------
-
-		if autoGroupReward
-			and GetGroupRemaining() <= 0
-		then
-
-			Settings.lastGroupRewardAttempt =
-				os.time()
-
-			SaveSettings()
-
-			InvokeRemote(
-				"Claim Group Reward",
-				"Claim Group Reward"
-			)
-
-		end
-
-		--------------------------------------------------
-		-- STATS
-		--------------------------------------------------
-
-		if now >= nextStats then
-
-			nextStats =
-				now + 0.5
-
-			UpdateStats()
-
-		end
-
-		task.wait(0.05)
-
-	end
-
+for amount,button in pairs(amountButtons) do button.BackgroundColor3=amount==Settings.selectedChickenAmount and C.accent or C.control end
+Toggle(FarmPage,"buy","Hühner automatisch kaufen",Settings.chickenEnabled,function(v) Settings.chickenEnabled=v end)
+Toggle(FarmPage,"sell","Eier automatisch verkaufen",Settings.autoSellEggs,function(v)
+	Settings.autoSellEggs=v if Runtime.Controls.threshold then Runtime.Controls.threshold.setEnabled(v) end
 end)
 
---------------------------------------------------
--- INPUT
---------------------------------------------------
+local multiRow,multiLabel=Row(FarmPage,"Verkaufen ab Multiplikator",72) multiLabel.Size=UDim2.new(1,-24,0,30)
+local MultiValue=Text(multiRow,"",14,C.text,true) MultiValue.Size=UDim2.fromOffset(65,28) MultiValue.Position=UDim2.new(1,-77,0,3) MultiValue.TextXAlignment=Enum.TextXAlignment.Right
+local track=Instance.new("Frame",multiRow) track.Size=UDim2.new(1,-30,0,8) track.Position=UDim2.new(0,15,1,-22) track.BackgroundColor3=C.control track.BorderSizePixel=0 track.Active=true Round(track,4)
+local fill=Instance.new("Frame",track) fill.BackgroundColor3=C.accent fill.BorderSizePixel=0 Round(fill,4)
+local knob=Instance.new("Frame",track) knob.Size=UDim2.fromOffset(18,18) knob.AnchorPoint=Vector2.new(.5,.5) knob.BackgroundColor3=C.text knob.BorderSizePixel=0 knob.Active=true Round(knob,9)
+local sliderDragging,thresholdEnabled=false,Settings.autoSellEggs
+local function UpdateMultiplier(value,save)
+	value=math.clamp(math.floor((value-.5)*20+.5)/20+.5,.5,1.5) Settings.sellAtMultiplier=value
+	local alpha=value-.5 MultiValue.Text=string.format("%.2fx",value) fill.Size=UDim2.fromScale(alpha,1) knob.Position=UDim2.new(alpha,0,.5,0)
+	if save then SaveSettings() end
+end
+local function EnableThreshold(enabled)
+	thresholdEnabled=enabled multiRow.BackgroundTransparency=enabled and 0 or .35 multiLabel.TextColor3=enabled and C.text or C.muted track.Active=enabled knob.Active=enabled
+end
+Runtime.Controls.threshold={setEnabled=EnableThreshold}
+local function Slide(input)
+	if not thresholdEnabled then return end
+	local alpha=math.clamp((input.Position.X-track.AbsolutePosition.X)/track.AbsoluteSize.X,0,1) UpdateMultiplier(.5+alpha,false)
+end
+local function SliderStart(input)
+	if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then sliderDragging=true Slide(input) end
+end
+Track(track.InputBegan:Connect(SliderStart)) Track(knob.InputBegan:Connect(SliderStart))
+Track(UserInputService.InputChanged:Connect(function(input)
+	if sliderDragging and (input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch) then Slide(input) end
+end))
+Track(UserInputService.InputEnded:Connect(function(input)
+	if sliderDragging and (input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch) then sliderDragging=false UpdateMultiplier(Settings.sellAtMultiplier,true) end
+end))
+UpdateMultiplier(Settings.sellAtMultiplier,false) EnableThreshold(Settings.autoSellEggs)
 
-TrackConnection(
+Toggle(FarmPage,"process","Prozess automatisch verbessern",Settings.autoProcessUpgrade,function(v) Settings.autoProcessUpgrade=v end)
+Toggle(FarmPage,"tier","Kaufstufe automatisch verbessern",Settings.autoTierUpgrade,function(v) Settings.autoTierUpgrade=v end)
+Toggle(FarmPage,"group","Gruppenbelohnung automatisch",Settings.autoGroupReward,function(v) Settings.autoGroupReward=v end)
+Toggle(FarmPage,"cash","Cash automatisch einsammeln",Settings.autoCollectCash,function(v) Settings.autoCollectCash=v end)
+Toggle(FarmPage,"afk","Anti-AFK",Settings.antiAFK,function(v) Settings.antiAFK=v end)
+Heading(FarmPage,"OBERFLÄCHE")
+local hotkeyRow=Row(FarmPage,"UI ein-/ausblenden") local HotkeyButton=Button(hotkeyRow,"",116) HotkeyButton.Position=UDim2.new(1,-128,.5,-17)
+local uiHotkey=Enum.KeyCode[Settings.uiHotkey] or Enum.KeyCode.RightControl
+local keyNames={RightControl="Rechte Strg",LeftControl="Linke Strg",RightShift="Rechte Shift",LeftShift="Linke Shift"}
+local function KeyName(key) return keyNames[key.Name] or key.Name end
+local waitingForHotkey=false HotkeyButton.Text=KeyName(uiHotkey)
+Track(HotkeyButton.Activated:Connect(function() waitingForHotkey=true HotkeyButton.Text="Taste drücken …" SetStatus("Neue Taste drücken – ESC bricht ab","warning") end))
+local resetRow=Row(FarmPage,"Zurücksetzen",50)
+local ResetPosition=Button(resetRow,"Position",92) ResetPosition.Position=UDim2.new(1,-200,.5,-17)
+local ResetAll=Button(resetRow,"Alles",88) ResetAll.Position=UDim2.new(1,-100,.5,-17) ResetAll.BackgroundColor3=C.danger
 
-	UserInputService.InputBegan:
-		Connect(function(
-			input,
-			gameProcessed
-		)
+Heading(StatsPage,"AKTUELLE WERTE")
+local Stat={}
+local function AddStat(id,label)
+	local row=Row(StatsPage,label) local value=Text(row,"N/V",14,C.text,true) value.Size=UDim2.fromOffset(190,46)
+	value.Position=UDim2.new(1,-202,0,0) value.TextXAlignment=Enum.TextXAlignment.Right Stat[id]=value
+end
+AddStat("eggs","Eier") AddStat("eps","Eier pro Sekunde") AddStat("cash","Cash") AddStat("multiplier","Eier-Multiplikator")
+AddStat("group","Nächste Gruppenbelohnung") AddStat("rebirth","Rebirth-Fortschritt") AddStat("gems","Gems Reset")
+Heading(StatsPage,"DIESE SITZUNG")
+AddStat("runtime","Laufzeit") AddStat("buys","Kaufvorgänge") AddStat("sales","Verkäufe")
+AddStat("upgrades","Verbesserungen") AddStat("errors","Fehler") AddStat("lastAction","Letzte Aktion")
 
-			--------------------------------------------------
-			-- SET HOTKEY
-			--------------------------------------------------
-
-			if waitingForHotkey then
-
-				if input.UserInputType ~=
-					Enum.UserInputType.Keyboard
-				then
-					return
+local Session={started=os.clock(),buys=0,sales=0,upgrades=0,errors=0,lastAction="Keine"}
+local lastEgg,lastEggTime,eggRate,lastDepositTime=nil,nil,nil,0
+local rebirthCurrent,rebirthRequired,nextRebirthScan=nil,nil,0
+local minimized=false
+local function FindRebirth()
+	local bestCurrent,bestRequired
+	for _,object in ipairs(PlayerGui:GetDescendants()) do
+		if Runtime.Alive and not object:IsDescendantOf(ScreenGui) then
+			local text=ObjectText(object)
+			if text and text:find("/",1,true) then
+				local left,right=text:match("%$?%s*([%d%.]+%a*)%s*/%s*%$?%s*([%d%.]+%a*)")
+				local current,required=ParseNumber(left),ParseNumber(right)
+				local context=(object.Name.." "..(object.Parent and object.Parent.Name or "").." "..text):lower()
+				local likely=context:find("rebirth",1,true)~=nil
+				if current and required and required>0 and current<=required and (likely or not bestRequired) then
+					if likely or not bestRequired or required>bestRequired then bestCurrent,bestRequired=current,required end
 				end
-
-				if input.KeyCode ==
-					Enum.KeyCode.Escape
-				then
-
-					waitingForHotkey =
-						false
-
-					HotkeyButton.Text =
-						GetKeyName(
-							uiHotkey
-						)
-
-					return
-
-				end
-
-				if input.KeyCode ~=
-					Enum.KeyCode.Unknown
-				then
-
-					uiHotkey =
-						input.KeyCode
-
-					Settings.uiHotkey =
-						uiHotkey.Name
-
-					waitingForHotkey =
-						false
-
-					HotkeyButton.Text =
-						GetKeyName(
-							uiHotkey
-						)
-
-					SaveSettings()
-
-				end
-
-				return
-
 			end
+		end
+	end
+	return bestCurrent,bestRequired
+end
+local function GroupRemaining()
+	local last=tonumber(Settings.lastGroupRewardAttempt) or 0
+	return last<=0 and 0 or math.max(0,GROUP_INTERVAL-(os.time()-last))
+end
+local function UpdateStats()
+	if not Runtime.Alive then return end
+	local now=os.clock() local eggText=EggsTextObject and tostring(EggsTextObject.Text) or "N/V" local current=ParseNumber(eggText)
+	if current then
+		if lastEgg and lastEggTime and now-lastEggTime>0 and now-lastDepositTime>1.5 then
+			local difference=current-lastEgg local rate=difference>=0 and difference/(now-lastEggTime) or nil
+			if rate and rate<math.max(1,current)*100 then eggRate=eggRate and eggRate*.7+rate*.3 or rate end
+		end
+		lastEgg,lastEggTime=current,now
+	end
+	Stat.eggs.Text=eggText Stat.eps.Text=eggRate and FormatNumber(eggRate).."/s" or "Wird berechnet …"
+	Stat.cash.Text=CashTextObject and tostring(CashTextObject.Text) or "N/V"
+	Stat.multiplier.Text=string.format("%.2fx",tonumber(EggMultiplier.Value) or 0)
+	Stat.group.Text=Settings.autoGroupReward and (GroupRemaining()<=0 and "Bereit" or FormatTime(GroupRemaining())) or "Ausgeschaltet"
+	Stat.gems.Text=GemsResetTextObject and tostring(GemsResetTextObject.Text) or "N/V"
+	Stat.runtime.Text=FormatTime(now-Session.started) Stat.buys.Text=tostring(Session.buys) Stat.sales.Text=tostring(Session.sales)
+	Stat.upgrades.Text=tostring(Session.upgrades) Stat.errors.Text=tostring(Session.errors) Stat.lastAction.Text=Session.lastAction
+	if currentPage=="Stats" and now>=nextRebirthScan then nextRebirthScan=now+10 rebirthCurrent,rebirthRequired=FindRebirth() end
+	Stat.rebirth.Text=rebirthCurrent and (FormatNumber(rebirthCurrent).." / "..FormatNumber(rebirthRequired)) or "Rebirth-Fenster öffnen"
+end
 
-			--------------------------------------------------
-			-- IGNORE WHILE TYPING
-			--------------------------------------------------
-
-			if UserInputService:
-				GetFocusedTextBox()
-			then
-				return
-			end
-
-			--------------------------------------------------
-			-- ESC CLOSE DROPDOWN
-			--------------------------------------------------
-
-			if input.KeyCode ==
-				Enum.KeyCode.Escape
-			then
-
-				DropdownList.Visible =
-					false
-
-				Dropdown.Text =
-					tostring(
-						selectedChickenAmount
-					)
-					.. " ▼"
-
-				return
-
-			end
-
-			if gameProcessed then
-				return
-			end
-
-			--------------------------------------------------
-			-- UI HOTKEY
-			--------------------------------------------------
-
-			if input.UserInputType ==
-					Enum.UserInputType.Keyboard
-				and input.KeyCode ==
-					uiHotkey
-			then
-
-				Main.Visible =
-					not Main.Visible
-
-				DropdownList.Visible =
-					false
-
-			end
-
+local function WarnOnce(key,message)
+	local now=os.clock() if now-(Runtime.LastErrors[key] or 0)<ERROR_COOLDOWN then return end
+	Runtime.LastErrors[key]=now warn("[Chicken Farm] "..message)
+end
+local function ValidResult(result)
+	if result==false then return false end
+	if type(result)=="string" then
+		local lower=result:lower()
+		if lower:find("not enough",1,true) or lower:find("failed",1,true) or lower:find("error",1,true) then return false end
+	end
+	return true
+end
+local function InvokeAsync(key,args,callback)
+	if not Runtime.Alive or Runtime.Busy[key] then return false end
+	Runtime.Busy[key]=true
+	task.spawn(function()
+		local ok,result=pcall(function() return Event:InvokeServer(table.unpack(args)) end)
+		if ok then ok=ValidResult(result) end Runtime.Busy[key]=nil
+		if not Runtime.Alive then return end
+		if ok then Session.lastAction=key SetStatus(key.." erfolgreich","success")
+		else Session.errors+=1 SetStatus(key.." fehlgeschlagen","error") WarnOnce(key,key.." fehlgeschlagen: "..tostring(result)) end
+		if callback then callback(ok,result) end
+	end)
+	return true
+end
+local function Worker(interval,enabled,action)
+	task.spawn(function() while Runtime.Alive do if enabled() then action() end task.wait(interval) end end)
+end
+Worker(.5,function() return Settings.chickenEnabled end,function()
+	InvokeAsync("Hühner gekauft",{"Buy Chickens",Settings.selectedChickenAmount},function(ok) if ok then Session.buys+=1 end end)
+end)
+Worker(.5,function() return Settings.autoSellEggs end,function()
+	local eggs=EggsTextObject and ParseNumber(EggsTextObject.Text)
+	if eggs and eggs>0 and (tonumber(EggMultiplier.Value) or 0)>=Settings.sellAtMultiplier and os.clock()-lastDepositTime>=1 then
+		InvokeAsync("Eier verkauft",{"Deposit Eggs"},function(ok)
+			if ok then Session.sales+=1 lastDepositTime=os.clock() lastEgg,lastEggTime,eggRate=nil,nil,nil end
 		end)
+	end
+end)
+Worker(1,function() return Settings.autoProcessUpgrade end,function()
+	InvokeAsync("Prozess verbessert",{"Upgrade Process Level"},function(ok) if ok then Session.upgrades+=1 end end)
+end)
+Worker(1,function() return Settings.autoTierUpgrade end,function()
+	InvokeAsync("Kaufstufe verbessert",{"Upgrade Buy Tier Level"},function(ok) if ok then Session.upgrades+=1 end end)
+end)
+Worker(1,function() return Settings.autoCollectCash end,function() InvokeAsync("Cash eingesammelt",{"Collect Cash"}) end)
+Worker(1,function() return Settings.autoGroupReward and GroupRemaining()<=0 end,function()
+	InvokeAsync("Gruppenbelohnung abgeholt",{"Claim Group Reward"},function(ok)
+		if ok then Settings.lastGroupRewardAttempt=os.time() SaveSettings() end
+	end)
+end)
+-- UI-Werte pausieren, solange das Fenster ausgeblendet oder minimiert ist.
+Worker(.5,function() return Main.Visible and not minimized end,UpdateStats)
 
-)
+local function ShowPage(name)
+	currentPage=name FarmPage.Visible=name=="Farm" StatsPage.Visible=name=="Stats"
+	FarmTab.BackgroundColor3=name=="Farm" and C.accent or C.control StatsTab.BackgroundColor3=name=="Stats" and C.accent or C.control
+	if name=="Stats" then nextRebirthScan=0 UpdateStats() end
+end
+Track(FarmTab.Activated:Connect(function() ShowPage("Farm") end))
+Track(StatsTab.Activated:Connect(function() ShowPage("Stats") end)) ShowPage("Farm")
 
---------------------------------------------------
--- CLEANUP
---------------------------------------------------
+Track(MinButton.Activated:Connect(function()
+	minimized=not minimized TabBar.Visible=not minimized Pages.Visible=not minimized Status.Visible=not minimized
+	Main.Size=minimized and UDim2.fromOffset(430,52) or UDim2.fromOffset(430,570) MinButton.Text=minimized and "+" or "—"
+end))
+function Runtime.Stop()
+	if not Runtime.Alive then return end Runtime.Alive=false SaveSettings(true)
+	for _,connection in ipairs(Runtime.Connections) do pcall(function() connection:Disconnect() end) end Runtime.Connections={}
+	if ScreenGui and ScreenGui.Parent then ScreenGui:Destroy() end
+	if Env.__ChickenFarmRuntime==Runtime then Env.__ChickenFarmRuntime=nil end
+end
+Track(CloseButton.Activated:Connect(Runtime.Stop))
+local function ResetWindowPosition()
+	Settings.uiPosition=Clone(DEFAULTS.uiPosition)
+	Main.Position=UDim2.new(Settings.uiPosition.xScale,Settings.uiPosition.xOffset,Settings.uiPosition.yScale,Settings.uiPosition.yOffset)
+	SaveSettings() SetStatus("Fensterposition zurückgesetzt","success")
+end
+Track(ResetPosition.Activated:Connect(ResetWindowPosition))
+Track(ResetAll.Activated:Connect(function()
+	local position=Clone(Settings.uiPosition) Settings=Clone(DEFAULTS) Settings.uiPosition=position SaveSettings(true)
+	SetStatus("Einstellungen zurückgesetzt – Script neu starten","warning")
+end))
 
-TrackConnection(
+local dragging,dragStart,startPosition=false,nil,nil
+Track(Header.InputBegan:Connect(function(input)
+	if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then dragging,dragStart,startPosition=true,input.Position,Main.Position end
+end))
+Track(UserInputService.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch) then
+		local delta=input.Position-dragStart
+		Main.Position=UDim2.new(startPosition.X.Scale,startPosition.X.Offset+delta.X/Scale.Scale,startPosition.Y.Scale,startPosition.Y.Offset+delta.Y/Scale.Scale)
+	end
+end))
+Track(UserInputService.InputEnded:Connect(function(input)
+	if dragging and (input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch) then
+		dragging=false
+		local viewport=Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1920,1080)
+		local size=Main.AbsoluteSize local pos=Main.AbsolutePosition
+		local x=math.clamp(pos.X,0,math.max(0,viewport.X-size.X)) local y=math.clamp(pos.Y,0,math.max(0,viewport.Y-size.Y))
+		Main.Position=UDim2.fromOffset(x/Scale.Scale,y/Scale.Scale)
+		Settings.uiPosition={xScale=0,xOffset=Main.Position.X.Offset,yScale=0,yOffset=Main.Position.Y.Offset} SaveSettings()
+	end
+end))
+Track(Player.Idled:Connect(function()
+	if Settings.antiAFK then pcall(function() VirtualUser:CaptureController() VirtualUser:ClickButton2(Vector2.zero) end) end
+end))
+Track(UserInputService.InputBegan:Connect(function(input,processed)
+	if waitingForHotkey then
+		if input.UserInputType~=Enum.UserInputType.Keyboard then return end waitingForHotkey=false
+		if input.KeyCode~=Enum.KeyCode.Escape and input.KeyCode~=Enum.KeyCode.Unknown then
+			uiHotkey=input.KeyCode Settings.uiHotkey=uiHotkey.Name SaveSettings() SetStatus("Hotkey gespeichert","success")
+		else SetStatus("Hotkey-Auswahl abgebrochen","warning") end
+		HotkeyButton.Text=KeyName(uiHotkey) return
+	end
+	if UserInputService:GetFocusedTextBox() or processed then return end
+	if input.UserInputType==Enum.UserInputType.Keyboard and input.KeyCode==uiHotkey then Main.Visible=not Main.Visible end
+end))
+Track(ScreenGui.Destroying:Connect(function() Runtime.Alive=false end))
 
-	ScreenGui.Destroying:
-		Connect(function()
-
-			if Environment.__ChickenFarmRuntime
-				== Runtime
-			then
-
-				Runtime.Alive =
-					false
-
-			end
-
-		end)
-
-)
-
---------------------------------------------------
--- SAVE SETTINGS
---------------------------------------------------
-
-Settings.chickenEnabled =
-	chickenEnabled
-
-Settings.selectedChickenAmount =
-	selectedChickenAmount
-
-Settings.autoSellEggs =
-	autoSellEggs
-
-Settings.sellAtMultiplier =
-	sellAtMultiplier
-
-Settings.autoProcessUpgrade =
-	autoProcessUpgrade
-
-Settings.autoTierUpgrade =
-	autoTierUpgrade
-
-Settings.autoGroupReward =
-	autoGroupReward
-
-Settings.autoCollectCash =
-	autoCollectCash
-
-Settings.antiAFK =
-	antiAFK
-
-Settings.uiHotkey =
-	uiHotkey.Name
-
-SaveSettings(true)
-
---------------------------------------------------
--- INITIAL UPDATE
---------------------------------------------------
-
-UpdateStats()
-
---------------------------------------------------
--- READY
---------------------------------------------------
-
-print("------------------------------------")
-print("Chicken Farm loaded")
-print("Chicken Amount:", selectedChickenAmount)
-print("Eggs:", EggsTextObject.Text)
-print("Cash:", CashTextObject.Text)
-print("Egg Multiplier:", EggMultiplier.Value)
-print("Gems Reset:", GemsResetTextObject.Text)
-print("Sell threshold:", sellAtMultiplier)
-print("------------------------------------")
+SaveSettings(true) UpdateStats()
+SetStatus(FILE_SUPPORT and ("Version "..VERSION.." – bereit") or ("Version "..VERSION.." – Einstellungen werden nicht gespeichert"),FILE_SUPPORT and "success" or "warning")
+print("[Chicken Farm] Version",VERSION,"geladen")
+print("[Chicken Farm] Kaufmenge:",Settings.selectedChickenAmount)
+print("[Chicken Farm] Verkauf ab:",string.format("%.2fx",Settings.sellAtMultiplier))
