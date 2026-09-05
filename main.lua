@@ -263,10 +263,6 @@ local keyNames={RightControl="Rechte Strg",LeftControl="Linke Strg",RightShift="
 local function KeyName(key) return keyNames[key.Name] or key.Name end
 local waitingForHotkey=false HotkeyButton.Text=KeyName(uiHotkey)
 Track(HotkeyButton.Activated:Connect(function() waitingForHotkey=true HotkeyButton.Text="Taste drücken …" SetStatus("Neue Taste drücken – ESC bricht ab","warning") end))
-local resetRow=Row(FarmPage,"Zurücksetzen",50)
-local ResetPosition=Button(resetRow,"Position",92) ResetPosition.Position=UDim2.new(1,-200,.5,-17)
-local ResetAll=Button(resetRow,"Alles",88) ResetAll.Position=UDim2.new(1,-100,.5,-17) ResetAll.BackgroundColor3=C.danger
-
 Heading(StatsPage,"AKTUELLE WERTE")
 local Stat={}
 local function AddStat(id,label)
@@ -393,17 +389,6 @@ function Runtime.Stop()
 	if Env.__ChickenFarmRuntime==Runtime then Env.__ChickenFarmRuntime=nil end
 end
 Track(CloseButton.Activated:Connect(Runtime.Stop))
-local function ResetWindowPosition()
-	Settings.uiPosition=Clone(DEFAULTS.uiPosition)
-	Main.Position=UDim2.new(Settings.uiPosition.xScale,Settings.uiPosition.xOffset,Settings.uiPosition.yScale,Settings.uiPosition.yOffset)
-	SaveSettings() SetStatus("Fensterposition zurückgesetzt","success")
-end
-Track(ResetPosition.Activated:Connect(ResetWindowPosition))
-Track(ResetAll.Activated:Connect(function()
-	local position=Clone(Settings.uiPosition) Settings=Clone(DEFAULTS) Settings.uiPosition=position SaveSettings(true)
-	SetStatus("Einstellungen zurückgesetzt – Script neu starten","warning")
-end))
-
 local dragging,dragStart,startPosition=false,nil,nil
 Track(Header.InputBegan:Connect(function(input)
 	if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then dragging,dragStart,startPosition=true,input.Position,Main.Position end
