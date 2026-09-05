@@ -11,6 +11,7 @@ A unified Roblox interface for automating repetitive tasks in Chicken Farm.
 - Automatically collect cash
 - Optional anti-AFK mode
 - Stats page with current game values and eggs per second
+- Small timing labels below each automation
 - Saved settings, window position, and customizable UI hotkey
 - Responsive, scrollable interface with mouse and touch support
 
