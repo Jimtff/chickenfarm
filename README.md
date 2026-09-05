@@ -10,7 +10,7 @@ Eine einheitliche Roblox-Benutzeroberfläche zur Automatisierung wiederkehrender
 - Gruppenbelohnung automatisch abholen
 - Cash automatisch einsammeln
 - Optionaler Anti-AFK-Modus
-- Sitzungsstatistiken mit Eier/s, Laufzeit, Aktionen und Fehlern
+- Statistikansicht mit aktuellen Spielwerten und Eier/s
 - Speicherbare Einstellungen, Fensterposition und frei wählbarer UI-Hotkey
 - Responsive, scrollbare und für Maus sowie Touch geeignete Oberfläche
 
@@ -20,7 +20,7 @@ Eine einheitliche Roblox-Benutzeroberfläche zur Automatisierung wiederkehrender
 2. Im Tab **Farm** die gewünschten Automatisierungen aktivieren.
 3. Die Kaufmenge über eine der vier Mengenschaltflächen auswählen.
 4. Den Verkaufsmultiplikator mit dem Slider zwischen **0,50x und 1,50x** einstellen.
-5. Im Tab **Statistiken** aktuelle Werte und Sitzungszähler ansehen.
+5. Im Tab **Statistiken** die aktuellen Spielwerte ansehen.
 
 Der Standard-Hotkey zum Ein- und Ausblenden der UI ist **Rechte Strg**. Er kann unter **Oberfläche** geändert werden. Während der Hotkey-Auswahl bricht ESC den Vorgang ab.
 
@@ -60,7 +60,7 @@ Aktuell: **2.0.0**
 - Responsive Skalierung, Scrolling und Touch-Unterstützung
 - Multiplikator-Slider und deaktivierte abhängige Einstellung
 - Sichtbare Status- und Fehlermeldungen
-- Erweiterte Sitzungsstatistiken
+- Übersichtliche Statistikansicht
 - Zuverlässigerer Group-Reward-Timer
 - Optimierter Rebirth-Scan
 - Blockierungsfreie Remote-Worker
