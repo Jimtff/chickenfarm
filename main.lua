@@ -275,11 +275,7 @@ local function AddStat(id,label)
 end
 AddStat("eggs","Eier") AddStat("eps","Eier pro Sekunde") AddStat("cash","Cash") AddStat("multiplier","Eier-Multiplikator")
 AddStat("group","Nächste Gruppenbelohnung") AddStat("rebirth","Rebirth-Fortschritt") AddStat("gems","Gems Reset")
-Heading(StatsPage,"DIESE SITZUNG")
-AddStat("runtime","Laufzeit") AddStat("buys","Kaufvorgänge") AddStat("sales","Verkäufe")
-AddStat("upgrades","Verbesserungen") AddStat("errors","Fehler") AddStat("lastAction","Letzte Aktion")
 
-local Session={started=os.clock(),buys=0,sales=0,upgrades=0,errors=0,lastAction="Keine"}
 local lastEgg,lastEggTime,eggRate,lastDepositTime=nil,nil,nil,0
 local rebirthCurrent,rebirthRequired,nextRebirthScan=nil,nil,0
 local minimized=false
@@ -320,8 +316,6 @@ local function UpdateStats()
 	Stat.multiplier.Text=string.format("%.2fx",tonumber(EggMultiplier.Value) or 0)
 	Stat.group.Text=Settings.autoGroupReward and (GroupRemaining()<=0 and "Bereit" or FormatTime(GroupRemaining())) or "Ausgeschaltet"
 	Stat.gems.Text=GemsResetTextObject and tostring(GemsResetTextObject.Text) or "N/V"
-	Stat.runtime.Text=FormatTime(now-Session.started) Stat.buys.Text=tostring(Session.buys) Stat.sales.Text=tostring(Session.sales)
-	Stat.upgrades.Text=tostring(Session.upgrades) Stat.errors.Text=tostring(Session.errors) Stat.lastAction.Text=Session.lastAction
 	if currentPage=="Stats" and now>=nextRebirthScan then nextRebirthScan=now+10 rebirthCurrent,rebirthRequired=FindRebirth() end
 	Stat.rebirth.Text=rebirthCurrent and (FormatNumber(rebirthCurrent).." / "..FormatNumber(rebirthRequired)) or "Rebirth-Fenster öffnen"
 end
@@ -345,8 +339,8 @@ local function InvokeAsync(key,args,callback)
 		local ok,result=pcall(function() return Event:InvokeServer(table.unpack(args)) end)
 		if ok then ok=ValidResult(result) end Runtime.Busy[key]=nil
 		if not Runtime.Alive then return end
-		if ok then Session.lastAction=key SetStatus(key.." erfolgreich","success")
-		else Session.errors+=1 SetStatus(key.." fehlgeschlagen","error") WarnOnce(key,key.." fehlgeschlagen: "..tostring(result)) end
+		if ok then SetStatus(key.." erfolgreich","success")
+		else SetStatus(key.." fehlgeschlagen","error") WarnOnce(key,key.." fehlgeschlagen: "..tostring(result)) end
 		if callback then callback(ok,result) end
 	end)
 	return true
@@ -355,21 +349,21 @@ local function Worker(interval,enabled,action)
 	task.spawn(function() while Runtime.Alive do if enabled() then action() end task.wait(interval) end end)
 end
 Worker(.5,function() return Settings.chickenEnabled end,function()
-	InvokeAsync("Hühner gekauft",{"Buy Chickens",Settings.selectedChickenAmount},function(ok) if ok then Session.buys+=1 end end)
+	InvokeAsync("Hühner gekauft",{"Buy Chickens",Settings.selectedChickenAmount})
 end)
 Worker(.5,function() return Settings.autoSellEggs end,function()
 	local eggs=EggsTextObject and ParseNumber(EggsTextObject.Text)
 	if eggs and eggs>0 and (tonumber(EggMultiplier.Value) or 0)>=Settings.sellAtMultiplier and os.clock()-lastDepositTime>=1 then
 		InvokeAsync("Eier verkauft",{"Deposit Eggs"},function(ok)
-			if ok then Session.sales+=1 lastDepositTime=os.clock() lastEgg,lastEggTime,eggRate=nil,nil,nil end
+			if ok then lastDepositTime=os.clock() lastEgg,lastEggTime,eggRate=nil,nil,nil end
 		end)
 	end
 end)
 Worker(1,function() return Settings.autoProcessUpgrade end,function()
-	InvokeAsync("Prozess verbessert",{"Upgrade Process Level"},function(ok) if ok then Session.upgrades+=1 end end)
+	InvokeAsync("Prozess verbessert",{"Upgrade Process Level"})
 end)
 Worker(1,function() return Settings.autoTierUpgrade end,function()
-	InvokeAsync("Kaufstufe verbessert",{"Upgrade Buy Tier Level"},function(ok) if ok then Session.upgrades+=1 end end)
+	InvokeAsync("Kaufstufe verbessert",{"Upgrade Buy Tier Level"})
 end)
 Worker(1,function() return Settings.autoCollectCash end,function() InvokeAsync("Cash eingesammelt",{"Collect Cash"}) end)
 Worker(1,function() return Settings.autoGroupReward and GroupRemaining()<=0 end,function()
