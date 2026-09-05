@@ -194,8 +194,14 @@ local function Heading(parent,text)
 	local label=Text(parent,text,13,C.muted,true) label.Size=UDim2.new(1,0,0,24) return label
 end
 local function ToggleVisual(button,enabled) button.Text=enabled and "ON" or "OFF" button.BackgroundColor3=enabled and C.accent or C.danger end
-local function Toggle(parent,id,label,initial,callback)
-	local row=Row(parent,label) local button=Button(row,"",86) button.Position=UDim2.new(1,-98,.5,-17)
+local function Toggle(parent,id,label,intervalText,initial,callback)
+	local row,name=Row(parent,label,54)
+	name.Size=UDim2.new(1,-150,0,30)
+	name.Position=UDim2.fromOffset(12,3)
+	local interval=Text(row,intervalText,11,C.muted,false)
+	interval.Size=UDim2.new(1,-150,0,18)
+	interval.Position=UDim2.fromOffset(12,30)
+	local button=Button(row,"",86) button.Position=UDim2.new(1,-98,.5,-17)
 	local enabled=initial==true ToggleVisual(button,enabled)
 	Track(button.Activated:Connect(function() enabled=not enabled ToggleVisual(button,enabled) callback(enabled) SaveSettings() end))
 	Runtime.Controls[id]={row=row,button=button,set=function(value) enabled=value==true ToggleVisual(button,enabled) end}
@@ -215,8 +221,8 @@ for index,amount in ipairs({1,5,25,100}) do
 	end))
 end
 for amount,button in pairs(amountButtons) do button.BackgroundColor3=amount==Settings.selectedChickenAmount and C.accent or C.control end
-Toggle(FarmPage,"buy","Auto Buy Chickens",Settings.chickenEnabled,function(v) Settings.chickenEnabled=v end)
-Toggle(FarmPage,"sell","Auto Sell Eggs",Settings.autoSellEggs,function(v)
+Toggle(FarmPage,"buy","Auto Buy Chickens","Every 0.2s",Settings.chickenEnabled,function(v) Settings.chickenEnabled=v end)
+Toggle(FarmPage,"sell","Auto Sell Eggs","Every 0.2s",Settings.autoSellEggs,function(v)
 	Settings.autoSellEggs=v if Runtime.Controls.threshold then Runtime.Controls.threshold.setEnabled(v) end
 end)
 
@@ -251,11 +257,11 @@ Track(UserInputService.InputEnded:Connect(function(input)
 end))
 UpdateMultiplier(Settings.sellAtMultiplier,false) EnableThreshold(Settings.autoSellEggs)
 
-Toggle(FarmPage,"process","Auto Process Upgrade",Settings.autoProcessUpgrade,function(v) Settings.autoProcessUpgrade=v end)
-Toggle(FarmPage,"tier","Auto Tier Upgrade",Settings.autoTierUpgrade,function(v) Settings.autoTierUpgrade=v end)
-Toggle(FarmPage,"group","Auto Group Reward",Settings.autoGroupReward,function(v) Settings.autoGroupReward=v end)
-Toggle(FarmPage,"cash","Auto Collect Cash",Settings.autoCollectCash,function(v) Settings.autoCollectCash=v end)
-Toggle(FarmPage,"afk","Anti-AFK",Settings.antiAFK,function(v) Settings.antiAFK=v end)
+Toggle(FarmPage,"process","Auto Process Upgrade","Every 0.2s",Settings.autoProcessUpgrade,function(v) Settings.autoProcessUpgrade=v end)
+Toggle(FarmPage,"tier","Auto Tier Upgrade","Every 1s",Settings.autoTierUpgrade,function(v) Settings.autoTierUpgrade=v end)
+Toggle(FarmPage,"group","Auto Group Reward","Checks every 1s",Settings.autoGroupReward,function(v) Settings.autoGroupReward=v end)
+Toggle(FarmPage,"cash","Auto Collect Cash","Every 1s",Settings.autoCollectCash,function(v) Settings.autoCollectCash=v end)
+Toggle(FarmPage,"afk","Anti-AFK","When idle",Settings.antiAFK,function(v) Settings.antiAFK=v end)
 Heading(FarmPage,"INTERFACE")
 local hotkeyRow=Row(FarmPage,"Show / Hide UI") local HotkeyButton=Button(hotkeyRow,"",116) HotkeyButton.Position=UDim2.new(1,-128,.5,-17)
 local uiHotkey=Enum.KeyCode[Settings.uiHotkey] or Enum.KeyCode.RightControl
